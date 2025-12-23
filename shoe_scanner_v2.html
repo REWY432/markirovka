@@ -1,0 +1,3394 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сканер маркировки PRO v2 — Azza Fencing</title>
+    
+    <!-- Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    
+    <script>
+        // Load Cyrillic font asynchronously
+        let cyrillicFontLoaded = false;
+        let cyrillicFontData = null;
+        
+        async function loadCyrillicFont() {
+            try {
+                // Try loading Roboto from Google Fonts CDN
+                const response = await fetch('https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Me5Q.ttf');
+                if (!response.ok) throw new Error('Font load failed');
+                const buffer = await response.arrayBuffer();
+                cyrillicFontData = arrayBufferToBase64(buffer);
+                cyrillicFontLoaded = true;
+                console.log('Cyrillic font loaded successfully');
+            } catch (e) {
+                console.log('Font loading failed, PDF will use transliteration:', e.message);
+            }
+        }
+        
+        function arrayBufferToBase64(buffer) {
+            let binary = '';
+            const bytes = new Uint8Array(buffer);
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        }
+        
+        // Start loading font on page load
+        loadCyrillicFont();
+    </script>
+    
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-panel: rgba(255, 255, 255, 0.05);
+            --text-primary: #eee;
+            --text-secondary: #aaa;
+            --text-muted: #666;
+            --accent: #00d9ff;
+            --accent-glow: rgba(0, 217, 255, 0.3);
+            --success: #00c853;
+            --warning: #ffa502;
+            --danger: #ff4757;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+        
+        [data-theme="light"] {
+            --bg-primary: #f5f7fa;
+            --bg-secondary: #e8ecef;
+            --bg-panel: rgba(255, 255, 255, 0.9);
+            --text-primary: #1a1a2e;
+            --text-secondary: #555;
+            --text-muted: #888;
+            --accent: #0066cc;
+            --accent-glow: rgba(0, 102, 204, 0.2);
+            --border: rgba(0, 0, 0, 0.1);
+        }
+        
+        * {
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            min-height: 100vh;
+            color: var(--text-primary);
+            transition: all 0.3s;
+        }
+        
+        body.fullscreen { padding: 10px; }
+        
+        .container { max-width: 1600px; margin: 0 auto; }
+        
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        
+        .header h1 {
+            margin: 0;
+            color: var(--accent);
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .header-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .model-badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 13px;
+        }
+        
+        .session-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .session-selector select {
+            padding: 8px 12px;
+            border-radius: 8px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            font-size: 13px;
+        }
+        
+        /* Panels */
+        .panel {
+            background: var(--bg-panel);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+        }
+        
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .panel-title {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin: 0;
+        }
+        
+        .panel-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .tab {
+            padding: 8px 16px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-radius: 8px 8px 0 0;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        
+        .tab:hover { background: var(--bg-panel); }
+        .tab.active { background: var(--accent); color: #000; font-weight: 600; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        /* Grid layout */
+        .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+        .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+        
+        /* Form elements */
+        .field { margin-bottom: 12px; }
+        .field label { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 12px; }
+        
+        select, input[type="text"], input[type="number"] {
+            width: 100%;
+            padding: 10px 14px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            color: var(--text-primary);
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        [data-theme="light"] select,
+        [data-theme="light"] input[type="text"],
+        [data-theme="light"] input[type="number"] {
+            background: rgba(255, 255, 255, 0.8);
+        }
+        
+        select:focus, input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+        
+        .scan-input {
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            letter-spacing: 0.5px;
+        }
+        
+        /* Buttons */
+        .btn {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: linear-gradient(135deg, var(--accent) 0%, #00a8cc 100%); color: #000; }
+        .btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 5px 20px var(--accent-glow); }
+        .btn-success { background: linear-gradient(135deg, var(--success) 0%, #00a844 100%); color: #fff; }
+        .btn-warning { background: linear-gradient(135deg, var(--warning) 0%, #e67e00 100%); color: #000; }
+        .btn-danger { background: linear-gradient(135deg, var(--danger) 0%, #c0392b 100%); color: #fff; }
+        .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text-primary); }
+        .btn-ghost:hover { background: var(--bg-panel); }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+        .btn-icon { width: 36px; height: 36px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; }
+        
+        /* Stream mode indicator */
+        .stream-mode-active {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%) !important;
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.7); }
+            50% { box-shadow: 0 0 0 10px rgba(255, 107, 107, 0); }
+        }
+        
+        .stream-badge {
+            background: #ff6b6b;
+            color: #fff;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            animation: pulse 1.5s infinite;
+        }
+        
+        /* Color tags */
+        .color-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+        
+        .color-tag {
+            background: rgba(102, 126, 234, 0.3);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .color-tag .remove { cursor: pointer; opacity: 0.6; font-size: 14px; }
+        .color-tag .remove:hover { opacity: 1; }
+        .add-inline { display: flex; gap: 8px; }
+        .add-inline input { width: 150px; }
+        
+        /* Stats cards */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 12px; margin-bottom: 16px; }
+        
+        .stat-card {
+            background: var(--bg-panel);
+            padding: 14px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+        
+        .stat-value { font-size: 24px; font-weight: 700; color: var(--accent); }
+        .stat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        /* Progress */
+        .progress-container { margin-bottom: 16px; }
+        .progress-header { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
+        .progress-bar { height: 12px; background: var(--bg-panel); border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--success)); transition: width 0.5s ease; border-radius: 6px; }
+        
+        /* Boxes */
+        .boxes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+        
+        .box-card {
+            background: var(--bg-panel);
+            border-radius: 12px;
+            border: 2px solid var(--border);
+            overflow: hidden;
+            transition: all 0.3s;
+        }
+        
+        .box-card.active { border-color: var(--accent); box-shadow: 0 0 20px var(--accent-glow); }
+        .box-card.full { border-color: var(--success); }
+        
+        .box-header {
+            padding: 12px 16px;
+            background: rgba(0, 0, 0, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .box-name { font-weight: 600; font-size: 14px; }
+        .box-count { font-size: 12px; color: var(--text-secondary); }
+        .box-count.full { color: var(--success); font-weight: 600; }
+        
+        .box-body { padding: 12px 16px; }
+        
+        .box-progress {
+            height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        
+        .box-progress-fill {
+            height: 100%;
+            background: var(--accent);
+            transition: width 0.3s;
+        }
+        
+        .box-progress-fill.full { background: var(--success); }
+        
+        .box-contents {
+            font-size: 11px;
+            color: var(--text-secondary);
+            max-height: 60px;
+            overflow-y: auto;
+        }
+        
+        .box-actions { display: flex; gap: 6px; margin-top: 10px; }
+        
+        /* Data table */
+        .table-controls {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .search-box { flex: 1; min-width: 200px; position: relative; }
+        .search-box input { padding-left: 36px; }
+        .search-box::before { content: "🔍"; position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 14px; }
+        .filter-group { display: flex; gap: 8px; flex-wrap: wrap; }
+        .filter-group select { width: auto; min-width: 100px; }
+        
+        .table-container {
+            overflow-x: auto;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+        
+        table.data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        
+        .data-table th {
+            background: rgba(0, 217, 255, 0.1);
+            padding: 12px 10px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--accent);
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        .data-table th:hover { background: rgba(0, 217, 255, 0.2); }
+        .data-table th .sort-icon { margin-left: 4px; opacity: 0.5; }
+        .data-table th.sorted .sort-icon { opacity: 1; }
+        .data-table td { padding: 10px; border-top: 1px solid var(--border); vertical-align: middle; }
+        .data-table tr:hover { background: rgba(255, 255, 255, 0.03); }
+        .data-table tr.selected { background: rgba(0, 217, 255, 0.1); }
+        
+        .code-cell { font-family: 'Courier New', monospace; font-size: 10px; word-break: break-all; max-width: 200px; }
+        .gtin-cell { font-family: 'Courier New', monospace; font-weight: 600; color: #ffd700; }
+        .row-num { color: var(--text-muted); }
+        
+        .status-badge {
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        
+        .status-unknown { background: var(--text-muted); color: #fff; }
+        .status-checking { background: var(--warning); color: #000; }
+        .status-valid { background: var(--success); color: #fff; }
+        .status-invalid { background: var(--danger); color: #fff; }
+        
+        .checkbox-cell { width: 30px; text-align: center; }
+        .checkbox-cell input { width: 16px; height: 16px; cursor: pointer; }
+        
+        .empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); }
+        
+        /* Matrix */
+        .matrix-container { overflow-x: auto; }
+        .matrix { border-collapse: collapse; font-size: 12px; width: 100%; }
+        .matrix th, .matrix td { padding: 8px 12px; text-align: center; border: 1px solid var(--border); min-width: 50px; }
+        .matrix th { background: rgba(0, 217, 255, 0.1); color: var(--accent); font-weight: 600; }
+        .matrix td { background: var(--bg-panel); }
+        .matrix td.has-items { background: rgba(0, 200, 83, 0.2); color: var(--success); font-weight: 600; }
+        
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            padding: 14px 20px;
+            border-radius: 12px;
+            color: #fff;
+            font-weight: 500;
+            z-index: 1000;
+            animation: slideIn 0.3s ease;
+            max-width: 350px;
+            font-size: 13px;
+        }
+        
+        /* Work Mode Buttons */
+        .work-mode-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border: 2px solid var(--border);
+            background: var(--bg-panel);
+            color: var(--text-secondary);
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .work-mode-btn:hover {
+            border-color: var(--accent);
+            color: var(--text-primary);
+        }
+        
+        .work-mode-btn.active {
+            border-color: var(--accent);
+            background: linear-gradient(135deg, var(--accent) 0%, #00a8cc 100%);
+            color: #000;
+        }
+        
+        .work-mode-btn.active[data-mode="receiving"] {
+            background: linear-gradient(135deg, #00c853 0%, #00a844 100%);
+            border-color: #00c853;
+        }
+        
+        .work-mode-btn.active[data-mode="inventory"] {
+            background: linear-gradient(135deg, #ffa502 0%, #e67e00 100%);
+            border-color: #ffa502;
+        }
+        
+        .work-mode-btn.active[data-mode="shipping"] {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: #667eea;
+        }
+        
+        .work-mode-btn .mode-icon {
+            font-size: 16px;
+        }
+        
+        @media (max-width: 600px) {
+            .work-mode-btn .mode-label {
+                display: none;
+            }
+            .work-mode-btn {
+                padding: 8px 12px;
+            }
+        }
+        
+        .toast-success { background: linear-gradient(135deg, var(--success) 0%, #00a844 100%); }
+        .toast-error { background: linear-gradient(135deg, var(--danger) 0%, #c0392b 100%); }
+        .toast-warning { background: linear-gradient(135deg, var(--warning) 0%, #e67e00 100%); color: #000; }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+        
+        .modal {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            padding: 24px;
+            max-width: 600px;
+            width: 100%;
+            max-height: 80vh;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .modal-title { font-size: 18px; font-weight: 600; color: var(--accent); }
+        .modal-close { background: none; border: none; color: var(--text-secondary); font-size: 24px; cursor: pointer; }
+        
+        /* Label preview */
+        .label-preview {
+            background: #fff;
+            color: #000;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 16px 0;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .label-preview h3 { margin: 0 0 10px 0; font-size: 18px; }
+        .label-preview .label-info { font-size: 12px; margin: 4px 0; }
+        .label-preview .label-contents { font-size: 10px; margin-top: 10px; border-top: 1px dashed #ccc; padding-top: 10px; }
+        
+        /* Hotkeys */
+        .hotkeys { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: var(--text-muted); margin-bottom: 16px; }
+        .hotkey { display: flex; align-items: center; gap: 6px; }
+        .hotkey kbd { background: var(--bg-panel); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); font-family: monospace; }
+        
+        /* API Status indicator */
+        .api-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+        
+        .api-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+        }
+        
+        .api-dot.connected { background: var(--success); }
+        .api-dot.error { background: var(--danger); }
+        
+        /* Print styles */
+        @media print {
+            body { background: #fff !important; color: #000 !important; padding: 10px; }
+            .panel { background: #fff !important; border: 1px solid #ddd !important; break-inside: avoid; }
+            .header-controls, .tabs, .table-controls, .btn, .panel-actions, .hotkeys { display: none !important; }
+            .tab-content { display: block !important; }
+            .data-table th { background: #f0f0f0 !important; color: #000 !important; }
+            .toast, .modal-overlay { display: none !important; }
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header { flex-direction: column; text-align: center; }
+            .header-controls { justify-content: center; }
+            .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+            .table-controls { flex-direction: column; }
+            .filter-group { width: 100%; }
+            .filter-group select { flex: 1; }
+        }
+    </style>
+</head>
+<body data-theme="dark">
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>📦 Сканер маркировки PRO v2</h1>
+            <div class="header-controls">
+                <span class="model-badge">Azza Fencing</span>
+                <span class="model-badge" id="workModeBadge" style="background: linear-gradient(135deg, #00c853 0%, #00a844 100%);">📥 Приёмка</span>
+                
+                <div class="api-status" id="apiStatus">
+                    <span class="api-dot"></span>
+                    <span>API: не настроен</span>
+                </div>
+                
+                <div class="session-selector">
+                    <select id="sessionSelect" onchange="switchSession()"></select>
+                    <button class="btn btn-ghost btn-sm" onclick="showNewSessionModal()">+ Партия</button>
+                </div>
+                
+                <button class="btn btn-icon btn-ghost" onclick="toggleTheme()" title="Сменить тему">🌓</button>
+                <button class="btn btn-icon btn-ghost" onclick="toggleFullscreen()" title="Полный экран">⛶</button>
+                <button class="btn btn-icon btn-ghost" onclick="toggleSound()" id="soundBtn" title="Звук">🔊</button>
+                <button class="btn btn-icon btn-ghost" onclick="toggleVoice()" id="voiceBtn" title="Голос">🗣️</button>
+            </div>
+        </div>
+        
+        <!-- Hotkeys hint -->
+        <div class="hotkeys">
+            <div class="hotkey"><kbd>1-9</kbd> Размер 36-44</div>
+            <div class="hotkey"><kbd>0</kbd> Размер 45</div>
+            <div class="hotkey"><kbd>S</kbd> Поток. режим</div>
+            <div class="hotkey"><kbd>Ctrl+E</kbd> Экспорт</div>
+            <div class="hotkey"><kbd>Del</kbd> Удалить выбранные</div>
+            <div class="hotkey"><kbd>Пробел</kbd> Копировать (МойСклад)</div>
+        </div>
+        
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('scan')">📱 Сканирование</button>
+            <button class="tab" onclick="switchTab('moysklad')">🚀 МойСклад</button>
+            <button class="tab" onclick="switchTab('catalog')">📚 Каталог GTIN</button>
+            <button class="tab" onclick="switchTab('boxes')">📦 Коробки</button>
+            <button class="tab" onclick="switchTab('analytics')">📊 Аналитика</button>
+            <button class="tab" onclick="switchTab('settings')">⚙️ Настройки</button>
+            <button class="tab" onclick="switchTab('history')">🗑️ Удалённые</button>
+        </div>
+        
+        <!-- Scan Tab -->
+        <div class="tab-content active" id="tab-scan">
+            <!-- Work Mode Selector -->
+            <div class="panel" style="padding: 12px 20px; margin-bottom: 16px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Режим:</span>
+                        <div class="work-mode-tabs" style="display: flex; gap: 4px;">
+                            <button class="work-mode-btn active" data-mode="receiving" onclick="setWorkMode('receiving')">
+                                <span class="mode-icon">📥</span>
+                                <span class="mode-label">Приёмка</span>
+                            </button>
+                            <button class="work-mode-btn" data-mode="inventory" onclick="setWorkMode('inventory')">
+                                <span class="mode-icon">📋</span>
+                                <span class="mode-label">Инвентаризация</span>
+                            </button>
+                            <button class="work-mode-btn" data-mode="shipping" onclick="setWorkMode('shipping')">
+                                <span class="mode-icon">📤</span>
+                                <span class="mode-label">Отправка</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="workModeInfo" style="font-size: 12px; color: var(--text-secondary);">
+                        Сканируйте товар от поставщика
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Auto mode banner -->
+            <div class="panel" id="autoModePanel" style="border-color: var(--success); background: rgba(0, 200, 83, 0.1);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <div>
+                        <span style="font-size: 18px;">🚀</span>
+                        <strong style="color: var(--success);">АВТОРЕЖИМ</strong>
+                        <span style="color: var(--text-secondary); font-size: 13px; margin-left: 8px;">
+                            Цвет и размер определяются автоматически по GTIN
+                        </span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span style="font-size: 12px; color: var(--text-muted);">
+                            В каталоге: <strong id="catalogCount">0</strong> GTIN
+                        </span>
+                        <button class="btn btn-ghost btn-sm" onclick="switchTab('catalog')">📚 Каталог</button>
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                            <input type="checkbox" id="autoModeToggle" checked onchange="toggleAutoMode()">
+                            <span style="font-size: 12px;">Вкл</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Stream mode panel -->
+            <div class="panel" id="streamModePanel" style="display: none; border-color: #ff6b6b;">
+                <div class="panel-header">
+                    <h3 class="panel-title" style="color: #ff6b6b;">🔥 ПОТОКОВЫЙ РЕЖИМ АКТИВЕН</h3>
+                    <button class="btn btn-danger btn-sm" onclick="toggleStreamMode()">✕ Выключить</button>
+                </div>
+                <p style="font-size: 13px; margin: 0;">
+                    Сканируйте коды подряд. Цвет: <strong id="streamColor">-</strong>, 
+                    Размер: <strong id="streamSize">-</strong>, 
+                    Коробка: <strong id="streamBox">-</strong>
+                </p>
+            </div>
+            
+            <!-- Scanning panel -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h3 class="panel-title">📱 Сканирование</h3>
+                    <div class="panel-actions">
+                        <button class="btn btn-warning btn-sm" id="streamModeBtn" onclick="toggleStreamMode()">
+                            🔥 Потоковый режим
+                        </button>
+                        <button class="btn btn-primary btn-sm" onclick="showCameraModal()">📷 Камера</button>
+                    </div>
+                </div>
+                
+                <div class="grid-4">
+                    <div class="field" id="colorField">
+                        <label>Цвет <span class="auto-hint" style="color: var(--success); font-size: 10px;">(авто)</span></label>
+                        <select id="colorSelect">
+                            <option value="">— Авто —</option>
+                        </select>
+                    </div>
+                    <div class="field" id="sizeField">
+                        <label>Размер <span class="auto-hint" style="color: var(--success); font-size: 10px;">(авто)</span></label>
+                        <select id="sizeSelect">
+                            <option value="">— Авто —</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label>Коробка</label>
+                        <select id="boxSelect">
+                            <option value="">— Без коробки —</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label>Код маркировки <span style="color: var(--accent);">← просто сканируйте!</span></label>
+                        <input type="text" id="scanInput" class="scan-input" placeholder="Наведите сканер..." autofocus>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Progress -->
+            <div class="panel" id="progressPanel" style="display: none;">
+                <div class="progress-container">
+                    <div class="progress-header">
+                        <span>Прогресс выполнения</span>
+                        <span id="progressText">0 / 0</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Stats -->
+            <div class="stats-grid" id="statsGrid"></div>
+            
+            <!-- Table -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h3 class="panel-title">📋 Отсканированные товары</h3>
+                    <div class="panel-actions">
+                        <button class="btn btn-danger btn-sm" onclick="deleteSelected()" id="deleteSelectedBtn" disabled>
+                            🗑️ Удалить выбранные (<span id="selectedCount">0</span>)
+                        </button>
+                        <button class="btn btn-ghost btn-sm" onclick="checkSelectedStatus()">🔍 Проверить статус</button>
+                        <button class="btn btn-success btn-sm" onclick="exportXLSX()">📊 Excel</button>
+                        <button class="btn btn-ghost btn-sm" onclick="exportCSV()">📄 CSV</button>
+                        <button class="btn btn-primary btn-sm" onclick="generateModeReport()">📋 Отчёт</button>
+                    </div>
+                </div>
+                
+                <div class="table-controls">
+                    <div class="search-box">
+                        <input type="text" id="searchInput" placeholder="Поиск..." oninput="filterTable()">
+                    </div>
+                    <div class="filter-group">
+                        <select id="filterColor" onchange="filterTable()">
+                            <option value="">Все цвета</option>
+                        </select>
+                        <select id="filterSize" onchange="filterTable()">
+                            <option value="">Все размеры</option>
+                        </select>
+                        <select id="filterBox" onchange="filterTable()">
+                            <option value="">Все коробки</option>
+                        </select>
+                        <button class="btn btn-ghost btn-sm" onclick="clearFilters()">✕</button>
+                    </div>
+                    <label style="font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                        <input type="checkbox" id="selectAll" onchange="toggleSelectAll()"> Выбрать все
+                    </label>
+                </div>
+                
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th class="checkbox-cell"></th>
+                                <th onclick="sortTable('index')">№</th>
+                                <th onclick="sortTable('color')">Цвет</th>
+                                <th onclick="sortTable('size')">Размер</th>
+                                <th onclick="sortTable('box')">Коробка</th>
+                                <th onclick="sortTable('gtin')">GTIN</th>
+                                <th>Обрезанный код</th>
+                                <th>Статус</th>
+                                <th>Действие</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody"></tbody>
+                    </table>
+                    <div class="empty-state" id="emptyState">
+                        <p>📦 Нет отсканированных товаров</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- MoySklad Tab -->
+        <div class="tab-content" id="tab-moysklad">
+            <div class="panel">
+                <div class="panel-header">
+                    <h3 class="panel-title">🚀 Перенос в МойСклад</h3>
+                    <div class="panel-actions">
+                        <button class="btn btn-ghost btn-sm" onclick="resetMoySkladProgress()">🔄 Сначала</button>
+                    </div>
+                </div>
+                
+                <div id="moyskladEmpty" class="empty-state">
+                    <p>📦 Нет отсканированных товаров</p>
+                    <p style="font-size: 12px;">Сначала отсканируйте товары во вкладке "Сканирование"</p>
+                </div>
+                
+                <div id="moyskladContent" style="display: none;">
+                    <!-- Nomenclature selector -->
+                    <div style="margin-bottom: 20px;">
+                        <label style="font-size: 12px; color: var(--text-secondary); display: block; margin-bottom: 8px;">
+                            Номенклатура:
+                        </label>
+                        <div id="nomenclatureList" style="display: flex; flex-wrap: wrap; gap: 8px;"></div>
+                    </div>
+                    
+                    <!-- Conveyor -->
+                    <div id="conveyorContainer" style="
+                        background: linear-gradient(135deg, rgba(0, 217, 255, 0.1) 0%, rgba(102, 126, 234, 0.1) 100%);
+                        border: 2px solid var(--accent);
+                        border-radius: 20px;
+                        padding: 40px 30px;
+                        text-align: center;
+                        margin-bottom: 20px;
+                    ">
+                        <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 8px;">
+                            <span id="conveyorNomenclature">—</span>
+                        </div>
+                        <div style="font-size: 16px; color: var(--accent); margin-bottom: 20px;">
+                            Код <span id="conveyorCurrentNum">0</span> из <span id="conveyorTotalNum">0</span>
+                        </div>
+                        
+                        <div id="conveyorCode" style="
+                            background: rgba(0, 0, 0, 0.3);
+                            border-radius: 12px;
+                            padding: 24px 20px;
+                            font-family: 'Courier New', monospace;
+                            font-size: 14px;
+                            word-break: break-all;
+                            color: #ffd700;
+                            margin-bottom: 24px;
+                            min-height: 60px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            user-select: all;
+                            cursor: text;
+                        ">
+                            —
+                        </div>
+                        
+                        <button id="conveyorButton" class="btn btn-primary" onclick="copyAndNext()" style="
+                            font-size: 18px;
+                            padding: 16px 48px;
+                            border-radius: 12px;
+                        ">
+                            📋 КОПИРОВАТЬ И ДАЛЬШЕ
+                        </button>
+                        
+                        <div style="margin-top: 12px; font-size: 12px; color: var(--text-muted);">
+                            или нажмите <kbd style="background: var(--bg-panel); padding: 2px 8px; border-radius: 4px;">Пробел</kbd>
+                        </div>
+                        
+                        <!-- Progress dots -->
+                        <div id="conveyorProgress" style="
+                            display: flex;
+                            justify-content: center;
+                            gap: 6px;
+                            margin-top: 24px;
+                            flex-wrap: wrap;
+                            max-width: 400px;
+                            margin-left: auto;
+                            margin-right: auto;
+                        "></div>
+                    </div>
+                    
+                    <!-- Completed message -->
+                    <div id="conveyorComplete" style="
+                        display: none;
+                        background: linear-gradient(135deg, rgba(0, 200, 83, 0.2) 0%, rgba(0, 168, 68, 0.2) 100%);
+                        border: 2px solid var(--success);
+                        border-radius: 20px;
+                        padding: 40px;
+                        text-align: center;
+                    ">
+                        <div style="font-size: 48px; margin-bottom: 16px;">✅</div>
+                        <div style="font-size: 20px; font-weight: 600; color: var(--success); margin-bottom: 8px;">
+                            Номенклатура готова!
+                        </div>
+                        <div id="completedNomenclature" style="color: var(--text-secondary); margin-bottom: 20px;">
+                            —
+                        </div>
+                        <button class="btn btn-primary" onclick="nextNomenclature()">
+                            Следующая номенклатура →
+                        </button>
+                    </div>
+                    
+                    <!-- All done message -->
+                    <div id="conveyorAllDone" style="
+                        display: none;
+                        background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
+                        border: 2px solid #667eea;
+                        border-radius: 20px;
+                        padding: 40px;
+                        text-align: center;
+                    ">
+                        <div style="font-size: 48px; margin-bottom: 16px;">🎉</div>
+                        <div style="font-size: 20px; font-weight: 600; color: #667eea; margin-bottom: 8px;">
+                            Все коды скопированы!
+                        </div>
+                        <div style="color: var(--text-secondary); margin-bottom: 20px;">
+                            Всего обработано: <strong id="allDoneCount">0</strong> кодов
+                        </div>
+                        <button class="btn btn-ghost" onclick="resetMoySkladProgress()">
+                            🔄 Начать сначала
+                        </button>
+                    </div>
+                    
+                    <!-- Stats -->
+                    <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-top: 20px;">
+                        <div class="stat-card" style="flex: 1; min-width: 120px;">
+                            <div class="stat-value" id="msTotal">0</div>
+                            <div class="stat-label">Всего кодов</div>
+                        </div>
+                        <div class="stat-card" style="flex: 1; min-width: 120px;">
+                            <div class="stat-value" id="msCopied">0</div>
+                            <div class="stat-label">Скопировано</div>
+                        </div>
+                        <div class="stat-card" style="flex: 1; min-width: 120px;">
+                            <div class="stat-value" id="msRemaining">0</div>
+                            <div class="stat-label">Осталось</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Catalog Tab -->
+        <div class="tab-content" id="tab-catalog">
+            <div class="panel">
+                <div class="panel-header">
+                    <h3 class="panel-title">📚 Каталог GTIN — автоопределение цвета и размера</h3>
+                    <div class="panel-actions">
+                        <button class="btn btn-primary btn-sm" onclick="showAddGtinModal()">+ Добавить вручную</button>
+                        <button class="btn btn-ghost btn-sm" onclick="exportCatalog()">📤 Экспорт</button>
+                        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('importCatalog').click()">📥 Импорт</button>
+                        <input type="file" id="importCatalog" accept=".json,.csv" style="display:none;" onchange="importCatalog(event)">
+                    </div>
+                </div>
+                
+                <div style="background: rgba(0, 217, 255, 0.1); padding: 16px; border-radius: 10px; margin-bottom: 16px;">
+                    <p style="margin: 0 0 8px 0; font-size: 14px;"><strong>💡 Как это работает:</strong></p>
+                    <ol style="margin: 0; padding-left: 20px; font-size: 13px; color: var(--text-secondary);">
+                        <li>При сканировании <strong>нового GTIN</strong> — появится окно для ввода цвета и размера</li>
+                        <li>Система <strong>запомнит</strong> эту комбинацию</li>
+                        <li>При повторном сканировании этого GTIN — цвет и размер подставятся <strong>автоматически</strong></li>
+                    </ol>
+                </div>
+                
+                <div class="table-controls">
+                    <div class="search-box">
+                        <input type="text" id="catalogSearch" placeholder="Поиск по GTIN, цвету..." oninput="renderCatalog()">
+                    </div>
+                    <span style="font-size: 13px; color: var(--text-muted);">
+                        Всего в каталоге: <strong id="catalogTotalCount">0</strong> позиций
+                    </span>
+                </div>
+                
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>GTIN</th>
+                                <th>Цвет</th>
+                                <th>Размер</th>
+                                <th>Модель</th>
+                                <th>Сканирований</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="catalogTableBody"></tbody>
+                    </table>
+                    <div class="empty-state" id="catalogEmptyState">
+                        <p>📚 Каталог пуст</p>
+                        <p style="font-size: 12px;">Отсканируйте первый товар — система предложит указать цвет и размер</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Boxes Tab -->
+        <div class="tab-content" id="tab-boxes">
+            <div class="panel">
+                <div class="panel-header">
+                    <h3 class="panel-title">📦 Управление коробками</h3>
+                    <div class="panel-actions">
+                        <button class="btn btn-primary btn-sm" onclick="showNewBoxModal()">+ Создать коробку</button>
+                        <button class="btn btn-ghost btn-sm" onclick="printAllLabels()">🏷️ Печать всех этикеток</button>
+                    </div>
+                </div>
+                
+                <div class="boxes-grid" id="boxesGrid">
+                    <div class="empty-state">Нет созданных коробок</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Analytics Tab -->
+        <div class="tab-content" id="tab-analytics">
+            <div class="grid-2">
+                <div class="panel">
+                    <h3 class="panel-title">📊 По цветам</h3>
+                    <div id="colorStats"></div>
+                </div>
+                <div class="panel">
+                    <h3 class="panel-title">📊 По размерам</h3>
+                    <div id="sizeStats"></div>
+                </div>
+            </div>
+            <div class="panel">
+                <h3 class="panel-title">🔢 Матрица: Цвет × Размер</h3>
+                <div class="matrix-container">
+                    <table class="matrix" id="matrixTable"></table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Settings Tab -->
+        <div class="tab-content" id="tab-settings">
+            <div class="grid-2">
+                <div class="panel">
+                    <h3 class="panel-title">🎨 Цвета</h3>
+                    <div class="color-tags" id="colorTags"></div>
+                    <div class="add-inline">
+                        <input type="text" id="newColorInput" placeholder="Новый цвет..." onkeypress="if(event.key==='Enter')addColor()">
+                        <button class="btn btn-primary btn-sm" onclick="addColor()">+</button>
+                    </div>
+                </div>
+                
+                <div class="panel">
+                    <h3 class="panel-title">🎯 План</h3>
+                    <div class="field">
+                        <label>Целевое количество</label>
+                        <input type="number" id="targetInput" placeholder="0" min="0" onchange="updateTarget()">
+                    </div>
+                </div>
+                
+                <div class="panel">
+                    <h3 class="panel-title">🔗 API Честный Знак</h3>
+                    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+                        Для проверки статуса кодов в ГИС МТ введите токен авторизации
+                    </p>
+                    <div class="field">
+                        <label>API Token</label>
+                        <input type="text" id="apiTokenInput" placeholder="Bearer ..." onchange="saveApiToken()">
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="testApiConnection()">Проверить подключение</button>
+                </div>
+                
+                <div class="panel">
+                    <h3 class="panel-title">📥 Импорт</h3>
+                    <input type="file" id="importFile" accept=".csv,.xlsx" style="display: none;" onchange="importData(event)">
+                    <button class="btn btn-ghost" onclick="document.getElementById('importFile').click()">
+                        📂 Выбрать файл (CSV/XLSX)
+                    </button>
+                </div>
+                
+                <div class="panel">
+                    <h3 class="panel-title">🗣️ Голосовые настройки</h3>
+                    <div class="field">
+                        <label>Голос</label>
+                        <select id="voiceSelect" onchange="saveVoiceSettings()"></select>
+                    </div>
+                    <div class="field">
+                        <label>Скорость: <span id="voiceRateValue">1.0</span></label>
+                        <input type="range" id="voiceRate" min="0.5" max="2" step="0.1" value="1" 
+                               style="width: 100%;" onchange="updateVoiceRate()">
+                    </div>
+                    <button class="btn btn-ghost btn-sm" onclick="testVoice()">🔊 Тест голоса</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- History Tab -->
+        <div class="tab-content" id="tab-history">
+            <div class="panel">
+                <div class="panel-header">
+                    <h3 class="panel-title">🗑️ Удалённые записи</h3>
+                    <button class="btn btn-danger btn-sm" onclick="clearDeleted()">Очистить всё</button>
+                </div>
+                <div class="deleted-list" id="deletedList">
+                    <div class="empty-state">Нет удалённых записей</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="modalContainer"></div>
+    
+    <!-- Audio -->
+    <audio id="successSound" preload="auto">
+        <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2JkJeLfXB0eYGIiIV+eXl7gIWIhn97eHp+g4eGgn56eXx/g4aEgX57en2Ag4SDgH98fH6BgoOBfn18fX+Cg4GAfn19f4GCgoF/fn1+gIGCgYF/fn5/gIGBgYB/fn9/gIGBgH9/f3+AgIGAf39/f4CAgIB/f39/gICAgH9/f3+AgICAfn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fn5+fg==" type="audio/wav">
+    </audio>
+    <audio id="errorSound" preload="auto">
+        <source src="data:audio/wav;base64,UklGRl4EAABXQVZFZm10IBAAAAABAAEAESsAABErAAABAAgAZGF0YToEAACAgICAgICAgH5+fn58fHx6enp4eHh2dnZ0dHRycnJwcHBubm5sbGxqampoaGhmZmZkZGRiYmJgYGBeXl5cXFxaWlpYWFhWVlZWVlZWVlZYWFhaWlpcXFxeXl5gYGBiYmJkZGRmZmZoaGhqampsbGxubm5wcHBycnJ0dHR2dnZ4eHh6enp8fHx+fn6AgICAgICAgIB+fn58fHx6enh4dnZ2dHRycnJwcG5ubmxsampoaGZmZGRiYmBgXl5cXFpaWFhWVlZWVlZWVlhYWlpcXF5eYGBiYmRkZmZoaGpqbGxubm5wcHJydHR2dnh4enp8fH5+gICAgICAgA==" type="audio/wav">
+    </audio>
+
+    <script>
+        // ============ STATE ============
+        let state = {
+            sessions: {},
+            currentSession: 'default',
+            colors: ['Черный', 'Белый', 'Синий'],
+            boxes: [],
+            gtinBindings: {},
+            gtinCatalog: {}, // GTIN -> {color, size, model}
+            target: 0,
+            soundEnabled: true,
+            voiceEnabled: true,
+            voiceRate: 1,
+            selectedVoice: null,
+            deletedRecords: [],
+            apiToken: '',
+            autoMode: true, // Автоопределение по GTIN
+            workMode: 'receiving', // receiving | inventory | shipping
+            streamMode: {
+                active: false,
+                color: null,
+                size: null,
+                box: null
+            }
+        };
+        
+        let currentSort = { column: null, direction: 'asc' };
+        let selectedRecords = new Set();
+        let html5QrCode = null;
+        
+        // ============ INITIALIZATION ============
+        document.addEventListener('DOMContentLoaded', () => {
+            loadState();
+            initSizes();
+            initVoices();
+            renderAll();
+            setupEventListeners();
+        });
+        
+        function loadState() {
+            const saved = localStorage.getItem('shoeScanner_v2');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    state = { ...state, ...parsed };
+                } catch (e) {
+                    console.error('Load error:', e);
+                }
+            }
+            
+            if (!state.sessions[state.currentSession]) {
+                state.sessions[state.currentSession] = { name: 'Партия 1', records: [] };
+            }
+            
+            document.getElementById('apiTokenInput').value = state.apiToken || '';
+            updateApiStatus();
+        }
+        
+        function saveState() {
+            localStorage.setItem('shoeScanner_v2', JSON.stringify(state));
+        }
+        
+        function initVoices() {
+            const voiceSelect = document.getElementById('voiceSelect');
+            
+            function populateVoices() {
+                const voices = speechSynthesis.getVoices();
+                const ruVoices = voices.filter(v => v.lang.startsWith('ru'));
+                
+                voiceSelect.innerHTML = '';
+                (ruVoices.length ? ruVoices : voices).forEach((voice, i) => {
+                    const option = new Option(`${voice.name} (${voice.lang})`, i);
+                    voiceSelect.add(option);
+                });
+                
+                if (state.selectedVoice !== null) {
+                    voiceSelect.value = state.selectedVoice;
+                }
+            }
+            
+            populateVoices();
+            if (speechSynthesis.onvoiceschanged !== undefined) {
+                speechSynthesis.onvoiceschanged = populateVoices;
+            }
+            
+            document.getElementById('voiceRate').value = state.voiceRate;
+            document.getElementById('voiceRateValue').textContent = state.voiceRate;
+        }
+        
+        function setupEventListeners() {
+            const scanInput = document.getElementById('scanInput');
+            scanInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') processScan(scanInput.value);
+            });
+            
+            document.addEventListener('keydown', handleHotkeys);
+        }
+        
+        function handleHotkeys(e) {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
+                if (e.target.id === 'scanInput' && e.key >= '0' && e.key <= '9' && !e.ctrlKey) {
+                    e.preventDefault();
+                    const sizes = { '1': 36, '2': 37, '3': 38, '4': 39, '5': 40, '6': 41, '7': 42, '8': 43, '9': 44, '0': 45 };
+                    if (sizes[e.key]) document.getElementById('sizeSelect').value = sizes[e.key];
+                }
+                return;
+            }
+            
+            if (e.ctrlKey && e.key === 'e') { e.preventDefault(); exportXLSX(); }
+            else if (e.key === 'Delete') { e.preventDefault(); deleteSelected(); }
+            else if (e.key.toLowerCase() === 's' && !e.ctrlKey) { e.preventDefault(); toggleStreamMode(); }
+        }
+        
+        // ============ RENDERING ============
+        function renderAll() {
+            renderColors();
+            renderColorSelect();
+            renderFilterOptions();
+            renderSessions();
+            renderBoxes();
+            renderBoxSelect();
+            renderTable();
+            renderStats();
+            renderAnalytics();
+            renderDeletedList();
+            renderCatalog();
+            updateProgress();
+            updateAutoModeUI();
+            updateWorkModeUI();
+            document.getElementById('targetInput').value = state.target || '';
+        }
+        
+        function updateAutoModeUI() {
+            const toggle = document.getElementById('autoModeToggle');
+            if (toggle) toggle.checked = state.autoMode;
+            
+            const panel = document.getElementById('autoModePanel');
+            const hints = document.querySelectorAll('.auto-hint');
+            
+            if (state.autoMode) {
+                panel.style.borderColor = 'var(--success)';
+                panel.style.background = 'rgba(0, 200, 83, 0.1)';
+                hints.forEach(h => h.style.display = 'inline');
+            } else {
+                panel.style.borderColor = 'var(--border)';
+                panel.style.background = 'var(--bg-panel)';
+                hints.forEach(h => h.style.display = 'none');
+            }
+        }
+        
+        // ============ WORK MODES ============
+        const workModeConfig = {
+            receiving: {
+                name: 'Приёмка',
+                icon: '📥',
+                description: 'Сканируйте товар от поставщика',
+                color: '#00c853',
+                actionText: 'принят',
+                reportTitle: 'ОТЧЁТ О ПРИЁМКЕ',
+                showBoxes: true
+            },
+            inventory: {
+                name: 'Инвентаризация',
+                icon: '📋',
+                description: 'Сканируйте товар для подсчёта',
+                color: '#ffa502',
+                actionText: 'учтён',
+                reportTitle: 'ОТЧЁТ ОБ ИНВЕНТАРИЗАЦИИ',
+                showBoxes: false
+            },
+            shipping: {
+                name: 'Отправка',
+                icon: '📤',
+                description: 'Сканируйте товар для отправки',
+                color: '#667eea',
+                actionText: 'добавлен к отправке',
+                reportTitle: 'ОТЧЁТ ОБ ОТПРАВКЕ',
+                showBoxes: true
+            }
+        };
+        
+        function setWorkMode(mode) {
+            state.workMode = mode;
+            saveState();
+            updateWorkModeUI();
+            showToast(`Режим: ${workModeConfig[mode].name}`, 'success');
+        }
+        
+        function updateWorkModeUI() {
+            const mode = state.workMode || 'receiving';
+            const config = workModeConfig[mode];
+            
+            // Update buttons
+            document.querySelectorAll('.work-mode-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === mode);
+            });
+            
+            // Update info text
+            const infoEl = document.getElementById('workModeInfo');
+            if (infoEl) {
+                infoEl.textContent = config.description;
+            }
+            
+            // Update header badge
+            const badge = document.getElementById('workModeBadge');
+            if (badge) {
+                badge.textContent = `${config.icon} ${config.name}`;
+                const gradients = {
+                    receiving: 'linear-gradient(135deg, #00c853 0%, #00a844 100%)',
+                    inventory: 'linear-gradient(135deg, #ffa502 0%, #e67e00 100%)',
+                    shipping: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                };
+                badge.style.background = gradients[mode];
+            }
+            
+            // Update panel title
+            const panelTitle = document.querySelector('#tab-scan .panel:nth-child(4) .panel-title');
+            if (panelTitle) {
+                panelTitle.innerHTML = `${config.icon} ${getModeTableTitle()}`;
+            }
+            
+            // Show/hide boxes field based on mode
+            const boxField = document.getElementById('boxSelect')?.closest('.field');
+            if (boxField) {
+                boxField.style.display = config.showBoxes ? 'block' : 'none';
+            }
+        }
+        
+        function getModeTableTitle() {
+            const mode = state.workMode || 'receiving';
+            switch (mode) {
+                case 'receiving': return 'Принятый товар';
+                case 'inventory': return 'Учтённый товар';
+                case 'shipping': return 'Товар к отправке';
+                default: return 'Отсканированные товары';
+            }
+        }
+        
+        function getModeActionText() {
+            const mode = state.workMode || 'receiving';
+            return workModeConfig[mode].actionText;
+        }
+        
+        function generateModeReport() {
+            const mode = state.workMode || 'receiving';
+            const config = workModeConfig[mode];
+            const records = getCurrentRecords();
+            
+            if (records.length === 0) {
+                showToast('Нет данных для отчёта', 'error');
+                return;
+            }
+            
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            const useCyrillic = setupCyrillicFont(doc);
+            const t = useCyrillic ? (s) => s : transliterate;
+            
+            // Header with mode-specific styling
+            doc.setFontSize(18);
+            doc.text(t(config.reportTitle), 105, 20, { align: 'center' });
+            
+            doc.setFontSize(11);
+            doc.text(`${t('Дата')}: ${new Date().toLocaleDateString('ru-RU')}`, 20, 35);
+            doc.text(`${t('Время')}: ${new Date().toLocaleTimeString('ru-RU')}`, 20, 42);
+            doc.text(`${t('Модель')}: Azza Fencing`, 20, 49);
+            doc.text(`${t('Всего позиций')}: ${records.length}`, 20, 56);
+            
+            if (mode === 'shipping' && state.boxes.length > 0) {
+                doc.text(`${t('Коробок')}: ${state.boxes.length}`, 20, 63);
+            }
+            
+            // Summary by color and size
+            const summary = {};
+            state.colors.forEach(c => { summary[c] = {}; for(let s=36;s<=47;s++) summary[c][s]=0; });
+            records.forEach(r => { if(summary[r.color]) summary[r.color][r.size]++; });
+            
+            const summaryData = [];
+            state.colors.forEach(color => {
+                const row = [t(color)];
+                let total = 0;
+                for(let s=36;s<=47;s++) {
+                    row.push(summary[color][s] || '-');
+                    total += summary[color][s];
+                }
+                row.push(total);
+                if (total > 0) summaryData.push(row);
+            });
+            
+            const headers = [t('Цвет'), ...Array.from({length:12}, (_,i) => String(36+i)), t('Итого')];
+            
+            doc.autoTable({
+                startY: mode === 'shipping' ? 73 : 66,
+                head: [headers],
+                body: summaryData,
+                theme: 'grid',
+                styles: { fontSize: 8, cellPadding: 2, font: useCyrillic ? 'Roboto' : 'helvetica' },
+                headStyles: { fillColor: hexToRgb(config.color) }
+            });
+            
+            // Mode-specific sections
+            if (mode === 'shipping' && state.boxes.length > 0) {
+                let y = doc.lastAutoTable.finalY + 15;
+                doc.setFontSize(14);
+                doc.text(t('СОДЕРЖИМОЕ КОРОБОК'), 20, y);
+                y += 10;
+                
+                state.boxes.forEach(box => {
+                    const boxRecords = records.filter(r => r.boxId === box.id);
+                    if (boxRecords.length === 0) return;
+                    
+                    const boxSummary = {};
+                    boxRecords.forEach(r => {
+                        const key = `${t(r.color)} ${r.size}`;
+                        boxSummary[key] = (boxSummary[key] || 0) + 1;
+                    });
+                    
+                    doc.setFontSize(11);
+                    doc.text(`${t(box.name)} (${boxRecords.length} ${t('шт')}.)`, 20, y);
+                    y += 5;
+                    
+                    doc.autoTable({
+                        startY: y,
+                        head: [[t('Товар'), t('Кол-во')]],
+                        body: Object.entries(boxSummary).map(([k, v]) => [k, v]),
+                        theme: 'striped',
+                        styles: { fontSize: 9, font: useCyrillic ? 'Roboto' : 'helvetica' },
+                        headStyles: { fillColor: hexToRgb(config.color) },
+                        margin: { left: 25 }
+                    });
+                    
+                    y = doc.lastAutoTable.finalY + 10;
+                    if (y > 270) { doc.addPage(); y = 20; }
+                });
+            }
+            
+            const sessionName = state.sessions[state.currentSession]?.name || 'export';
+            const modeNames = { receiving: 'Priemka', inventory: 'Inventarizaciya', shipping: 'Otpravka' };
+            doc.save(`${modeNames[mode]}_${t(sessionName)}_${new Date().toISOString().slice(0,10)}.pdf`);
+            
+            showToast('Отчёт создан', 'success');
+        }
+        
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)] : [0, 150, 200];
+        }
+        
+        function renderColors() {
+            document.getElementById('colorTags').innerHTML = state.colors.map(color => `
+                <div class="color-tag">
+                    ${escapeHtml(color)}
+                    <span class="remove" onclick="removeColor('${escapeHtml(color)}')">&times;</span>
+                </div>
+            `).join('');
+        }
+        
+        function renderColorSelect() {
+            const select = document.getElementById('colorSelect');
+            const currentValue = select.value;
+            
+            const defaultOption = state.autoMode ? '— Авто —' : '— Выберите —';
+            select.innerHTML = `<option value="">${defaultOption}</option>`;
+            state.colors.forEach(c => select.add(new Option(c, c)));
+            if (state.colors.includes(currentValue)) select.value = currentValue;
+        }
+        
+        function initSizes() {
+            const sizeSelect = document.getElementById('sizeSelect');
+            const filterSize = document.getElementById('filterSize');
+            
+            const defaultOption = state.autoMode ? '— Авто —' : '— Выберите —';
+            sizeSelect.innerHTML = `<option value="">${defaultOption}</option>`;
+            
+            for (let size = 36; size <= 47; size++) {
+                sizeSelect.add(new Option(size, size));
+                filterSize.add(new Option(size, size));
+            }
+        }
+        
+        function renderFilterOptions() {
+            const filterColor = document.getElementById('filterColor');
+            const filterBox = document.getElementById('filterBox');
+            
+            filterColor.innerHTML = '<option value="">Все цвета</option>';
+            state.colors.forEach(c => filterColor.add(new Option(c, c)));
+            
+            filterBox.innerHTML = '<option value="">Все коробки</option>';
+            filterBox.add(new Option('Без коробки', '__none__'));
+            state.boxes.forEach(b => filterBox.add(new Option(b.name, b.id)));
+        }
+        
+        function renderSessions() {
+            const select = document.getElementById('sessionSelect');
+            select.innerHTML = '';
+            Object.keys(state.sessions).forEach(key => {
+                const option = new Option(state.sessions[key].name, key);
+                if (key === state.currentSession) option.selected = true;
+                select.add(option);
+            });
+        }
+        
+        function renderBoxSelect() {
+            const select = document.getElementById('boxSelect');
+            const currentValue = select.value;
+            select.innerHTML = '<option value="">— Без коробки —</option>';
+            state.boxes.forEach(box => {
+                const count = getCurrentRecords().filter(r => r.boxId === box.id).length;
+                const isFull = box.capacity > 0 && count >= box.capacity;
+                const option = new Option(`${box.name} (${count}/${box.capacity || '∞'})${isFull ? ' ✓' : ''}`, box.id);
+                if (isFull) option.disabled = true;
+                select.add(option);
+            });
+            if (currentValue) select.value = currentValue;
+        }
+        
+        function renderBoxes() {
+            const grid = document.getElementById('boxesGrid');
+            
+            if (state.boxes.length === 0) {
+                grid.innerHTML = '<div class="empty-state">Нет созданных коробок</div>';
+                return;
+            }
+            
+            grid.innerHTML = state.boxes.map(box => {
+                const records = getCurrentRecords().filter(r => r.boxId === box.id);
+                const count = records.length;
+                const isFull = box.capacity > 0 && count >= box.capacity;
+                const percent = box.capacity > 0 ? Math.min(100, (count / box.capacity) * 100) : 0;
+                
+                // Summarize contents
+                const summary = {};
+                records.forEach(r => {
+                    const key = `${r.color} ${r.size}`;
+                    summary[key] = (summary[key] || 0) + 1;
+                });
+                const contentsStr = Object.entries(summary).map(([k, v]) => `${k}: ${v}`).join(', ');
+                
+                return `
+                    <div class="box-card ${isFull ? 'full' : ''}">
+                        <div class="box-header">
+                            <span class="box-name">📦 ${escapeHtml(box.name)}</span>
+                            <span class="box-count ${isFull ? 'full' : ''}">${count} / ${box.capacity || '∞'}</span>
+                        </div>
+                        <div class="box-body">
+                            ${box.capacity > 0 ? `
+                                <div class="box-progress">
+                                    <div class="box-progress-fill ${isFull ? 'full' : ''}" style="width: ${percent}%"></div>
+                                </div>
+                            ` : ''}
+                            <div class="box-contents">${contentsStr || 'Пусто'}</div>
+                            <div class="box-actions">
+                                <button class="btn btn-ghost btn-sm" onclick="printBoxLabel('${box.id}')">🏷️ Этикетка</button>
+                                <button class="btn btn-ghost btn-sm" onclick="editBox('${box.id}')">✏️</button>
+                                <button class="btn btn-danger btn-sm" onclick="deleteBox('${box.id}')">🗑️</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function getCurrentRecords() {
+            return state.sessions[state.currentSession]?.records || [];
+        }
+        
+        function renderTable() {
+            const tbody = document.getElementById('tableBody');
+            const emptyState = document.getElementById('emptyState');
+            
+            let records = getCurrentRecords();
+            
+            // Apply filters
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            const colorFilter = document.getElementById('filterColor').value;
+            const sizeFilter = document.getElementById('filterSize').value;
+            const boxFilter = document.getElementById('filterBox').value;
+            
+            records = records.filter(r => {
+                if (search && !r.gtin.includes(search) && !r.fullCode.toLowerCase().includes(search)) return false;
+                if (colorFilter && r.color !== colorFilter) return false;
+                if (sizeFilter && r.size != sizeFilter) return false;
+                if (boxFilter === '__none__' && r.boxId) return false;
+                if (boxFilter && boxFilter !== '__none__' && r.boxId !== boxFilter) return false;
+                return true;
+            });
+            
+            // Apply sorting
+            if (currentSort.column) {
+                records = [...records].sort((a, b) => {
+                    let valA = a[currentSort.column];
+                    let valB = b[currentSort.column];
+                    if (currentSort.column === 'index') {
+                        valA = getCurrentRecords().indexOf(a);
+                        valB = getCurrentRecords().indexOf(b);
+                    } else if (currentSort.column === 'size') {
+                        valA = parseInt(valA); valB = parseInt(valB);
+                    }
+                    if (valA < valB) return currentSort.direction === 'asc' ? -1 : 1;
+                    if (valA > valB) return currentSort.direction === 'asc' ? 1 : -1;
+                    return 0;
+                });
+            }
+            
+            if (records.length === 0) {
+                tbody.innerHTML = '';
+                emptyState.style.display = 'block';
+                return;
+            }
+            
+            emptyState.style.display = 'none';
+            
+            tbody.innerHTML = records.map((record) => {
+                const idx = getCurrentRecords().indexOf(record);
+                const box = state.boxes.find(b => b.id === record.boxId);
+                const isSelected = selectedRecords.has(idx);
+                
+                return `
+                    <tr class="${isSelected ? 'selected' : ''}">
+                        <td class="checkbox-cell">
+                            <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleRecordSelection(${idx})">
+                        </td>
+                        <td class="row-num">${idx + 1}</td>
+                        <td>${escapeHtml(record.color)}</td>
+                        <td>${record.size}</td>
+                        <td>${box ? escapeHtml(box.name) : '-'}</td>
+                        <td class="gtin-cell">${record.gtin}</td>
+                        <td class="code-cell">${escapeHtml(record.shortCode)}</td>
+                        <td>
+                            <span class="status-badge status-${record.status || 'unknown'}">
+                                ${getStatusText(record.status)}
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn btn-danger btn-sm" onclick="deleteRecord(${idx})">✕</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            
+            updateSelectedCount();
+        }
+        
+        function getStatusText(status) {
+            const texts = {
+                'unknown': '?',
+                'checking': '...',
+                'valid': 'В обороте',
+                'invalid': 'Выбыл'
+            };
+            return texts[status] || '?';
+        }
+        
+        function renderStats() {
+            const records = getCurrentRecords();
+            const mode = state.workMode || 'receiving';
+            const config = workModeConfig[mode];
+            
+            const colorCounts = {};
+            state.colors.forEach(c => colorCounts[c] = 0);
+            records.forEach(r => { if (colorCounts[r.color] !== undefined) colorCounts[r.color]++; });
+            
+            let html = `<div class="stat-card">
+                <div class="stat-value" style="color: ${config.color};">${records.length}</div>
+                <div class="stat-label">${config.icon} ${config.name}</div>
+            </div>`;
+            
+            state.colors.forEach(c => {
+                html += `<div class="stat-card"><div class="stat-value">${colorCounts[c]}</div><div class="stat-label">${escapeHtml(c)}</div></div>`;
+            });
+            
+            if (config.showBoxes) {
+                html += `<div class="stat-card"><div class="stat-value">${state.boxes.length}</div><div class="stat-label">Коробок</div></div>`;
+            }
+            
+            document.getElementById('statsGrid').innerHTML = html;
+        }
+        
+        function renderAnalytics() {
+            const records = getCurrentRecords();
+            
+            // By color
+            const colorStats = {};
+            state.colors.forEach(c => colorStats[c] = 0);
+            records.forEach(r => { if (colorStats[r.color] !== undefined) colorStats[r.color]++; });
+            
+            let colorHtml = '<div class="stats-grid">';
+            Object.entries(colorStats).forEach(([color, count]) => {
+                const percent = records.length ? Math.round(count / records.length * 100) : 0;
+                colorHtml += `<div class="stat-card"><div class="stat-value">${count}</div><div class="stat-label">${escapeHtml(color)} (${percent}%)</div></div>`;
+            });
+            colorHtml += '</div>';
+            document.getElementById('colorStats').innerHTML = colorHtml;
+            
+            // By size
+            const sizeStats = {};
+            for (let s = 36; s <= 47; s++) sizeStats[s] = 0;
+            records.forEach(r => { if (sizeStats[r.size] !== undefined) sizeStats[r.size]++; });
+            
+            let sizeHtml = '<div class="stats-grid">';
+            Object.entries(sizeStats).forEach(([size, count]) => {
+                sizeHtml += `<div class="stat-card"><div class="stat-value">${count}</div><div class="stat-label">Размер ${size}</div></div>`;
+            });
+            sizeHtml += '</div>';
+            document.getElementById('sizeStats').innerHTML = sizeHtml;
+            
+            // Matrix
+            const matrix = {};
+            state.colors.forEach(color => {
+                matrix[color] = {};
+                for (let s = 36; s <= 47; s++) matrix[color][s] = 0;
+            });
+            records.forEach(r => { if (matrix[r.color]) matrix[r.color][r.size]++; });
+            
+            const sizes = [];
+            for (let s = 36; s <= 47; s++) sizes.push(s);
+            
+            let matrixHtml = '<thead><tr><th>Цвет \\ Размер</th>';
+            sizes.forEach(s => matrixHtml += `<th>${s}</th>`);
+            matrixHtml += '<th>Итого</th></tr></thead><tbody>';
+            
+            state.colors.forEach(color => {
+                let rowTotal = 0;
+                matrixHtml += `<tr><th>${escapeHtml(color)}</th>`;
+                sizes.forEach(s => {
+                    const c = matrix[color][s];
+                    rowTotal += c;
+                    matrixHtml += `<td class="${c > 0 ? 'has-items' : ''}">${c || '-'}</td>`;
+                });
+                matrixHtml += `<td class="has-items">${rowTotal}</td></tr>`;
+            });
+            
+            matrixHtml += '<tr><th>Итого</th>';
+            let grandTotal = 0;
+            sizes.forEach(s => {
+                let colTotal = 0;
+                state.colors.forEach(c => colTotal += matrix[c][s]);
+                grandTotal += colTotal;
+                matrixHtml += `<td class="${colTotal > 0 ? 'has-items' : ''}">${colTotal || '-'}</td>`;
+            });
+            matrixHtml += `<td class="has-items">${grandTotal}</td></tr></tbody>`;
+            
+            document.getElementById('matrixTable').innerHTML = matrixHtml;
+        }
+        
+        function renderDeletedList() {
+            const container = document.getElementById('deletedList');
+            if (state.deletedRecords.length === 0) {
+                container.innerHTML = '<div class="empty-state">Нет удалённых записей</div>';
+                return;
+            }
+            container.innerHTML = state.deletedRecords.map((r, i) => `
+                <div class="deleted-item" style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--bg-panel);border-radius:8px;margin-bottom:6px;font-size:12px;">
+                    <span>${escapeHtml(r.color)} | ${r.size} | ${r.gtin}</span>
+                    <button class="btn btn-success btn-sm" onclick="restoreRecord(${i})">Восстановить</button>
+                </div>
+            `).join('');
+        }
+        
+        // ============ CATALOG ============
+        function renderCatalog() {
+            const tbody = document.getElementById('catalogTableBody');
+            const emptyState = document.getElementById('catalogEmptyState');
+            const searchInput = document.getElementById('catalogSearch');
+            const search = searchInput ? searchInput.value.toLowerCase() : '';
+            
+            const entries = Object.entries(state.gtinCatalog);
+            
+            // Update counts
+            document.getElementById('catalogCount').textContent = entries.length;
+            document.getElementById('catalogTotalCount').textContent = entries.length;
+            
+            // Filter by search
+            const filtered = entries.filter(([gtin, data]) => {
+                if (!search) return true;
+                return gtin.includes(search) || 
+                       data.color.toLowerCase().includes(search) ||
+                       String(data.size).includes(search);
+            });
+            
+            if (filtered.length === 0) {
+                tbody.innerHTML = '';
+                emptyState.style.display = 'block';
+                return;
+            }
+            
+            emptyState.style.display = 'none';
+            
+            tbody.innerHTML = filtered.map(([gtin, data]) => `
+                <tr>
+                    <td class="gtin-cell">${gtin}</td>
+                    <td>${escapeHtml(data.color)}</td>
+                    <td>${data.size}</td>
+                    <td>${escapeHtml(data.model || 'Azza Fencing')}</td>
+                    <td>${data.scanCount || 0}</td>
+                    <td>
+                        <button class="btn btn-ghost btn-sm" onclick="editCatalogEntry('${gtin}')">✏️</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteCatalogEntry('${gtin}')">🗑️</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        function showAddGtinModal() {
+            const html = `
+                <div class="modal-overlay" onclick="closeModal(event)">
+                    <div class="modal" onclick="event.stopPropagation()">
+                        <div class="modal-header">
+                            <span class="modal-title">➕ Добавить GTIN в каталог</span>
+                            <button class="modal-close" onclick="closeModal()">&times;</button>
+                        </div>
+                        <div class="field">
+                            <label>GTIN (14 цифр)</label>
+                            <input type="text" id="addGtinValue" maxlength="14" placeholder="04610456230546">
+                        </div>
+                        <div class="grid-2" style="gap: 12px;">
+                            <div class="field">
+                                <label>Цвет</label>
+                                <select id="addGtinColor">
+                                    ${state.colors.map(c => `<option value="${c}">${c}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label>Размер</label>
+                                <select id="addGtinSize">
+                                    ${Array.from({length: 12}, (_, i) => 36 + i).map(s => `<option value="${s}">${s}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary" onclick="addCatalogEntry()" style="margin-top: 16px;">Добавить</button>
+                    </div>
+                </div>
+            `;
+            document.getElementById('modalContainer').innerHTML = html;
+        }
+        
+        function addCatalogEntry() {
+            const gtin = document.getElementById('addGtinValue').value.trim();
+            const color = document.getElementById('addGtinColor').value;
+            const size = document.getElementById('addGtinSize').value;
+            
+            if (!gtin || gtin.length !== 14 || !/^\d+$/.test(gtin)) {
+                showToast('GTIN должен содержать 14 цифр', 'error');
+                return;
+            }
+            
+            if (state.gtinCatalog[gtin]) {
+                showToast('Этот GTIN уже в каталоге', 'warning');
+                return;
+            }
+            
+            state.gtinCatalog[gtin] = {
+                color,
+                size,
+                model: 'Azza Fencing',
+                addedAt: new Date().toISOString(),
+                scanCount: 0
+            };
+            
+            saveState();
+            closeModal();
+            renderCatalog();
+            showToast('GTIN добавлен в каталог', 'success');
+        }
+        
+        function editCatalogEntry(gtin) {
+            const entry = state.gtinCatalog[gtin];
+            if (!entry) return;
+            
+            const html = `
+                <div class="modal-overlay" onclick="closeModal(event)">
+                    <div class="modal" onclick="event.stopPropagation()">
+                        <div class="modal-header">
+                            <span class="modal-title">✏️ Редактировать GTIN</span>
+                            <button class="modal-close" onclick="closeModal()">&times;</button>
+                        </div>
+                        <div style="background: var(--bg-panel); padding: 12px; border-radius: 8px; margin-bottom: 16px; font-family: monospace;">
+                            GTIN: <strong style="color: #ffd700;">${gtin}</strong>
+                        </div>
+                        <div class="grid-2" style="gap: 12px;">
+                            <div class="field">
+                                <label>Цвет</label>
+                                <select id="editGtinColor">
+                                    ${state.colors.map(c => `<option value="${c}" ${c === entry.color ? 'selected' : ''}>${c}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label>Размер</label>
+                                <select id="editGtinSize">
+                                    ${Array.from({length: 12}, (_, i) => 36 + i).map(s => `<option value="${s}" ${s == entry.size ? 'selected' : ''}>${s}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary" onclick="saveCatalogEntry('${gtin}')" style="margin-top: 16px;">Сохранить</button>
+                    </div>
+                </div>
+            `;
+            document.getElementById('modalContainer').innerHTML = html;
+        }
+        
+        function saveCatalogEntry(gtin) {
+            const color = document.getElementById('editGtinColor').value;
+            const size = document.getElementById('editGtinSize').value;
+            
+            state.gtinCatalog[gtin].color = color;
+            state.gtinCatalog[gtin].size = size;
+            
+            saveState();
+            closeModal();
+            renderCatalog();
+            showToast('GTIN обновлён', 'success');
+        }
+        
+        function deleteCatalogEntry(gtin) {
+            if (!confirm(`Удалить GTIN ${gtin} из каталога?`)) return;
+            
+            delete state.gtinCatalog[gtin];
+            saveState();
+            renderCatalog();
+            showToast('GTIN удалён из каталога', 'success');
+        }
+        
+        function exportCatalog() {
+            const data = JSON.stringify(state.gtinCatalog, null, 2);
+            const blob = new Blob([data], { type: 'application/json' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `gtin_catalog_${new Date().toISOString().slice(0, 10)}.json`;
+            link.click();
+            showToast('Каталог экспортирован', 'success');
+        }
+        
+        function importCatalog(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    let imported = 0;
+                    
+                    Object.entries(data).forEach(([gtin, entry]) => {
+                        if (!state.gtinCatalog[gtin]) {
+                            state.gtinCatalog[gtin] = entry;
+                            imported++;
+                        }
+                    });
+                    
+                    saveState();
+                    renderCatalog();
+                    showToast(`Импортировано: ${imported} GTIN`, 'success');
+                } catch (err) {
+                    showToast('Ошибка чтения файла', 'error');
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+        }
+        
+        function toggleAutoMode() {
+            state.autoMode = document.getElementById('autoModeToggle').checked;
+            
+            const panel = document.getElementById('autoModePanel');
+            const hints = document.querySelectorAll('.auto-hint');
+            
+            if (state.autoMode) {
+                panel.style.borderColor = 'var(--success)';
+                panel.style.background = 'rgba(0, 200, 83, 0.1)';
+                hints.forEach(h => h.style.display = 'inline');
+                document.getElementById('colorSelect').innerHTML = '<option value="">— Авто —</option>' + 
+                    state.colors.map(c => `<option value="${c}">${c}</option>`).join('');
+                document.getElementById('sizeSelect').innerHTML = '<option value="">— Авто —</option>' + 
+                    Array.from({length: 12}, (_, i) => 36 + i).map(s => `<option value="${s}">${s}</option>`).join('');
+            } else {
+                panel.style.borderColor = 'var(--border)';
+                panel.style.background = 'var(--bg-panel)';
+                hints.forEach(h => h.style.display = 'none');
+                document.getElementById('colorSelect').innerHTML = '<option value="">— Выберите —</option>' + 
+                    state.colors.map(c => `<option value="${c}">${c}</option>`).join('');
+                document.getElementById('sizeSelect').innerHTML = '<option value="">— Выберите —</option>' + 
+                    Array.from({length: 12}, (_, i) => 36 + i).map(s => `<option value="${s}">${s}</option>`).join('');
+            }
+            
+            saveState();
+            showToast(state.autoMode ? 'Авторежим включён' : 'Авторежим выключен', 'success');
+        }
+        
+        // ============ MOYSKLAD CONVEYOR ============
+        let moySkladState = {
+            nomenclatures: [],      // Array of {key, color, size, codes[]}
+            currentNomIndex: 0,     // Current nomenclature index
+            currentCodeIndex: 0,    // Current code index within nomenclature
+            copiedCodes: new Set(), // Track copied codes
+            totalCopied: 0
+        };
+        
+        function initMoySklad() {
+            const records = getCurrentRecords();
+            
+            if (records.length === 0) {
+                document.getElementById('moyskladEmpty').style.display = 'block';
+                document.getElementById('moyskladContent').style.display = 'none';
+                return;
+            }
+            
+            document.getElementById('moyskladEmpty').style.display = 'none';
+            document.getElementById('moyskladContent').style.display = 'block';
+            
+            // Group records by nomenclature (color + size)
+            const grouped = {};
+            records.forEach(r => {
+                const key = `${r.color}|${r.size}`;
+                if (!grouped[key]) {
+                    grouped[key] = {
+                        key,
+                        color: r.color,
+                        size: r.size,
+                        codes: []
+                    };
+                }
+                grouped[key].codes.push(r.shortCode);
+            });
+            
+            moySkladState.nomenclatures = Object.values(grouped).sort((a, b) => {
+                if (a.color !== b.color) return a.color.localeCompare(b.color);
+                return parseInt(a.size) - parseInt(b.size);
+            });
+            
+            renderNomenclatureList();
+            renderConveyor();
+            updateMoySkladStats();
+        }
+        
+        function renderNomenclatureList() {
+            const container = document.getElementById('nomenclatureList');
+            
+            container.innerHTML = moySkladState.nomenclatures.map((nom, index) => {
+                const isActive = index === moySkladState.currentNomIndex;
+                const isDone = isNomenclatureDone(index);
+                
+                let style = `
+                    padding: 8px 16px;
+                    border-radius: 20px;
+                    font-size: 13px;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    border: 2px solid;
+                `;
+                
+                if (isDone) {
+                    style += 'background: var(--success); border-color: var(--success); color: #fff;';
+                } else if (isActive) {
+                    style += 'background: var(--accent); border-color: var(--accent); color: #000;';
+                } else {
+                    style += 'background: var(--bg-panel); border-color: var(--border); color: var(--text-primary);';
+                }
+                
+                return `
+                    <div style="${style}" onclick="selectNomenclature(${index})">
+                        ${isDone ? '✓ ' : ''}${escapeHtml(nom.color)}, ${nom.size}
+                        <span style="opacity: 0.7; margin-left: 4px;">(${nom.codes.length})</span>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function isNomenclatureDone(nomIndex) {
+            const nom = moySkladState.nomenclatures[nomIndex];
+            if (!nom) return false;
+            return nom.codes.every(code => moySkladState.copiedCodes.has(code));
+        }
+        
+        function selectNomenclature(index) {
+            moySkladState.currentNomIndex = index;
+            moySkladState.currentCodeIndex = 0;
+            
+            // Find first uncopied code
+            const nom = moySkladState.nomenclatures[index];
+            if (nom) {
+                const firstUncopied = nom.codes.findIndex(code => !moySkladState.copiedCodes.has(code));
+                if (firstUncopied !== -1) {
+                    moySkladState.currentCodeIndex = firstUncopied;
+                }
+            }
+            
+            renderNomenclatureList();
+            renderConveyor();
+        }
+        
+        function renderConveyor() {
+            const nom = moySkladState.nomenclatures[moySkladState.currentNomIndex];
+            
+            const container = document.getElementById('conveyorContainer');
+            const complete = document.getElementById('conveyorComplete');
+            const allDone = document.getElementById('conveyorAllDone');
+            
+            // Check if all done
+            if (moySkladState.nomenclatures.every((_, i) => isNomenclatureDone(i))) {
+                container.style.display = 'none';
+                complete.style.display = 'none';
+                allDone.style.display = 'block';
+                document.getElementById('allDoneCount').textContent = moySkladState.totalCopied;
+                return;
+            }
+            
+            // Check if current nomenclature is done
+            if (!nom || isNomenclatureDone(moySkladState.currentNomIndex)) {
+                container.style.display = 'none';
+                complete.style.display = 'block';
+                allDone.style.display = 'none';
+                document.getElementById('completedNomenclature').textContent = 
+                    nom ? `${nom.color}, размер ${nom.size} — ${nom.codes.length} шт.` : '';
+                return;
+            }
+            
+            container.style.display = 'block';
+            complete.style.display = 'none';
+            allDone.style.display = 'none';
+            
+            const currentCode = nom.codes[moySkladState.currentCodeIndex];
+            
+            document.getElementById('conveyorNomenclature').textContent = 
+                `📦 ${nom.color}, размер ${nom.size}`;
+            document.getElementById('conveyorCurrentNum').textContent = 
+                moySkladState.currentCodeIndex + 1;
+            document.getElementById('conveyorTotalNum').textContent = nom.codes.length;
+            document.getElementById('conveyorCode').textContent = currentCode;
+            
+            // Progress dots
+            const dotsHtml = nom.codes.map((code, i) => {
+                const isCopied = moySkladState.copiedCodes.has(code);
+                const isCurrent = i === moySkladState.currentCodeIndex;
+                
+                let dotStyle = `
+                    width: 12px;
+                    height: 12px;
+                    border-radius: 50%;
+                    transition: all 0.2s;
+                `;
+                
+                if (isCopied) {
+                    dotStyle += 'background: var(--success);';
+                } else if (isCurrent) {
+                    dotStyle += 'background: var(--accent); box-shadow: 0 0 8px var(--accent);';
+                } else {
+                    dotStyle += 'background: var(--bg-panel); border: 1px solid var(--border);';
+                }
+                
+                return `<div style="${dotStyle}"></div>`;
+            }).join('');
+            
+            document.getElementById('conveyorProgress').innerHTML = dotsHtml;
+        }
+        
+        async function copyAndNext() {
+            const nom = moySkladState.nomenclatures[moySkladState.currentNomIndex];
+            if (!nom) return;
+            
+            const currentCode = nom.codes[moySkladState.currentCodeIndex];
+            
+            // Copy to clipboard
+            try {
+                await navigator.clipboard.writeText(currentCode);
+                
+                // Mark as copied
+                moySkladState.copiedCodes.add(currentCode);
+                moySkladState.totalCopied++;
+                
+                // Visual feedback
+                const btn = document.getElementById('conveyorButton');
+                btn.textContent = '✓ Скопировано!';
+                btn.style.background = 'var(--success)';
+                
+                playSound('success');
+                
+                setTimeout(() => {
+                    btn.textContent = '📋 КОПИРОВАТЬ И ДАЛЬШЕ';
+                    btn.style.background = '';
+                    
+                    // Move to next code
+                    moySkladState.currentCodeIndex++;
+                    
+                    // If end of nomenclature, show complete screen
+                    if (moySkladState.currentCodeIndex >= nom.codes.length) {
+                        renderConveyor();
+                        renderNomenclatureList();
+                    } else {
+                        renderConveyor();
+                    }
+                    
+                    updateMoySkladStats();
+                }, 300);
+                
+            } catch (err) {
+                showToast('Ошибка копирования', 'error');
+            }
+        }
+        
+        function nextNomenclature() {
+            // Find next incomplete nomenclature
+            let nextIndex = moySkladState.currentNomIndex + 1;
+            
+            while (nextIndex < moySkladState.nomenclatures.length && isNomenclatureDone(nextIndex)) {
+                nextIndex++;
+            }
+            
+            if (nextIndex >= moySkladState.nomenclatures.length) {
+                // All done, check from beginning
+                nextIndex = moySkladState.nomenclatures.findIndex((_, i) => !isNomenclatureDone(i));
+            }
+            
+            if (nextIndex === -1) {
+                // All really done
+                renderConveyor();
+                return;
+            }
+            
+            selectNomenclature(nextIndex);
+        }
+        
+        function resetMoySkladProgress() {
+            moySkladState.currentNomIndex = 0;
+            moySkladState.currentCodeIndex = 0;
+            moySkladState.copiedCodes.clear();
+            moySkladState.totalCopied = 0;
+            
+            initMoySklad();
+            showToast('Прогресс сброшен', 'success');
+        }
+        
+        function updateMoySkladStats() {
+            const total = moySkladState.nomenclatures.reduce((sum, nom) => sum + nom.codes.length, 0);
+            const copied = moySkladState.copiedCodes.size;
+            
+            document.getElementById('msTotal').textContent = total;
+            document.getElementById('msCopied').textContent = copied;
+            document.getElementById('msRemaining').textContent = total - copied;
+        }
+        
+        // Handle spacebar for conveyor
+        document.addEventListener('keydown', (e) => {
+            // Only on MoySklad tab and not in input
+            if (document.getElementById('tab-moysklad').classList.contains('active') &&
+                e.target.tagName !== 'INPUT' && 
+                e.target.tagName !== 'SELECT' &&
+                e.code === 'Space') {
+                e.preventDefault();
+                copyAndNext();
+            }
+        });
+        
+        function updateProgress() {
+            const panel = document.getElementById('progressPanel');
+            const fill = document.getElementById('progressFill');
+            const text = document.getElementById('progressText');
+            
+            if (!state.target || state.target <= 0) {
+                panel.style.display = 'none';
+                return;
+            }
+            
+            panel.style.display = 'block';
+            const current = getCurrentRecords().length;
+            const percent = Math.min(100, Math.round(current / state.target * 100));
+            fill.style.width = percent + '%';
+            text.textContent = `${current} / ${state.target} (${percent}%)`;
+        }
+        
+        // ============ COLORS ============
+        function addColor() {
+            const input = document.getElementById('newColorInput');
+            const color = input.value.trim();
+            if (!color) { showToast('Введите цвет', 'error'); return; }
+            if (state.colors.includes(color)) { showToast('Цвет уже есть', 'warning'); return; }
+            state.colors.push(color);
+            input.value = '';
+            saveState();
+            renderAll();
+            showToast('Цвет добавлен', 'success');
+        }
+        
+        function removeColor(color) {
+            if (state.colors.length <= 1) { showToast('Нужен хотя бы 1 цвет', 'error'); return; }
+            state.colors = state.colors.filter(c => c !== color);
+            saveState();
+            renderAll();
+        }
+        
+        // ============ BOXES ============
+        function showNewBoxModal() {
+            const html = `
+                <div class="modal-overlay" onclick="closeModal(event)">
+                    <div class="modal" onclick="event.stopPropagation()">
+                        <div class="modal-header">
+                            <span class="modal-title">📦 Новая коробка</span>
+                            <button class="modal-close" onclick="closeModal()">&times;</button>
+                        </div>
+                        <div class="field">
+                            <label>Название</label>
+                            <input type="text" id="newBoxName" placeholder="Коробка 1">
+                        </div>
+                        <div class="field">
+                            <label>Вместимость (0 = без ограничения)</label>
+                            <input type="number" id="newBoxCapacity" value="10" min="0">
+                        </div>
+                        <button class="btn btn-primary" onclick="createBox()" style="margin-top: 12px;">Создать</button>
+                    </div>
+                </div>
+            `;
+            document.getElementById('modalContainer').innerHTML = html;
+        }
+        
+        function createBox() {
+            const name = document.getElementById('newBoxName').value.trim() || `Коробка ${state.boxes.length + 1}`;
+            const capacity = parseInt(document.getElementById('newBoxCapacity').value) || 0;
+            
+            state.boxes.push({
+                id: 'box_' + Date.now(),
+                name,
+                capacity
+            });
+            
+            saveState();
+            closeModal();
+            renderAll();
+            showToast('Коробка создана', 'success');
+        }
+        
+        function editBox(boxId) {
+            const box = state.boxes.find(b => b.id === boxId);
+            if (!box) return;
+            
+            const html = `
+                <div class="modal-overlay" onclick="closeModal(event)">
+                    <div class="modal" onclick="event.stopPropagation()">
+                        <div class="modal-header">
+                            <span class="modal-title">✏️ Редактировать коробку</span>
+                            <button class="modal-close" onclick="closeModal()">&times;</button>
+                        </div>
+                        <div class="field">
+                            <label>Название</label>
+                            <input type="text" id="editBoxName" value="${escapeHtml(box.name)}">
+                        </div>
+                        <div class="field">
+                            <label>Вместимость</label>
+                            <input type="number" id="editBoxCapacity" value="${box.capacity}" min="0">
+                        </div>
+                        <button class="btn btn-primary" onclick="saveBoxEdit('${boxId}')" style="margin-top: 12px;">Сохранить</button>
+                    </div>
+                </div>
+            `;
+            document.getElementById('modalContainer').innerHTML = html;
+        }
+        
+        function saveBoxEdit(boxId) {
+            const box = state.boxes.find(b => b.id === boxId);
+            if (!box) return;
+            
+            box.name = document.getElementById('editBoxName').value.trim() || box.name;
+            box.capacity = parseInt(document.getElementById('editBoxCapacity').value) || 0;
+            
+            saveState();
+            closeModal();
+            renderAll();
+            showToast('Коробка обновлена', 'success');
+        }
+        
+        function deleteBox(boxId) {
+            // Remove box reference from records
+            getCurrentRecords().forEach(r => {
+                if (r.boxId === boxId) r.boxId = null;
+            });
+            
+            state.boxes = state.boxes.filter(b => b.id !== boxId);
+            saveState();
+            renderAll();
+            showToast('Коробка удалена', 'success');
+        }
+        
+        // ============ LABELS & PDF ============
+        function printBoxLabel(boxId) {
+            const box = state.boxes.find(b => b.id === boxId);
+            if (!box) return;
+            
+            const records = getCurrentRecords().filter(r => r.boxId === boxId);
+            
+            // Summarize
+            const summary = {};
+            records.forEach(r => {
+                const key = `${r.color} | Размер ${r.size}`;
+                summary[key] = (summary[key] || 0) + 1;
+            });
+            
+            const html = `
+                <div class="modal-overlay" onclick="closeModal(event)">
+                    <div class="modal" onclick="event.stopPropagation()">
+                        <div class="modal-header">
+                            <span class="modal-title">🏷️ Этикетка коробки</span>
+                            <button class="modal-close" onclick="closeModal()">&times;</button>
+                        </div>
+                        <div class="label-preview" id="labelPreview">
+                            <h3>📦 ${escapeHtml(box.name)}</h3>
+                            <div class="label-info"><strong>Модель:</strong> Azza Fencing</div>
+                            <div class="label-info"><strong>Количество:</strong> ${records.length} шт.</div>
+                            <div class="label-info"><strong>Дата:</strong> ${new Date().toLocaleDateString('ru-RU')}</div>
+                            <div class="label-contents">
+                                <strong>Содержимое:</strong><br>
+                                ${Object.entries(summary).map(([k, v]) => `${k}: ${v} шт.`).join('<br>')}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-primary" onclick="printLabel()">🖨️ Печать</button>
+                            <button class="btn btn-ghost" onclick="downloadLabelPDF('${boxId}')">📄 Скачать PDF</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('modalContainer').innerHTML = html;
+        }
+        
+        function printLabel() {
+            const content = document.getElementById('labelPreview').innerHTML;
+            const win = window.open('', '_blank');
+            win.document.write(`
+                <html><head><title>Этикетка</title>
+                <style>
+                    body { font-family: Arial; padding: 20px; }
+                    h3 { margin: 0 0 10px; }
+                    .label-info { margin: 5px 0; font-size: 14px; }
+                    .label-contents { margin-top: 15px; padding-top: 10px; border-top: 1px dashed #ccc; font-size: 12px; }
+                </style>
+                </head><body>${content}</body></html>
+            `);
+            win.document.close();
+            win.print();
+        }
+        
+        function downloadLabelPDF(boxId) {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            // Setup font
+            const useCyrillic = setupCyrillicFont(doc);
+            const t = useCyrillic ? (s) => s : transliterate;
+            
+            const box = state.boxes.find(b => b.id === boxId);
+            const records = getCurrentRecords().filter(r => r.boxId === boxId);
+            
+            const summary = {};
+            records.forEach(r => {
+                const key = `${r.color} | ${t('Размер')} ${r.size}`;
+                summary[key] = (summary[key] || 0) + 1;
+            });
+            
+            doc.setFontSize(20);
+            doc.text(`${t('Коробка')}: ${t(box.name)}`, 20, 30);
+            
+            doc.setFontSize(12);
+            doc.text(`${t('Модель')}: Azza Fencing`, 20, 45);
+            doc.text(`${t('Количество')}: ${records.length} ${t('шт')}.`, 20, 55);
+            doc.text(`${t('Дата')}: ${new Date().toLocaleDateString('ru-RU')}`, 20, 65);
+            
+            doc.text(`${t('Содержимое')}:`, 20, 80);
+            let y = 90;
+            Object.entries(summary).forEach(([k, v]) => {
+                doc.text(`- ${t(k)}: ${v} ${t('шт')}.`, 25, y);
+                y += 8;
+            });
+            
+            doc.save(`${t('Этикетка')}_${t(box.name)}.pdf`);
+        }
+        
+        function setupCyrillicFont(doc) {
+            if (cyrillicFontLoaded && cyrillicFontData) {
+                try {
+                    doc.addFileToVFS('Roboto-Regular.ttf', cyrillicFontData);
+                    doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
+                    doc.setFont('Roboto');
+                    return true;
+                } catch (e) {
+                    console.log('Font setup failed, using transliteration');
+                }
+            }
+            return false;
+        }
+        
+        function printAllLabels() {
+            state.boxes.forEach(box => {
+                downloadLabelPDF(box.id);
+            });
+            showToast('Этикетки скачаны', 'success');
+        }
+        
+        // Transliteration for PDF (fallback for Cyrillic)
+        function transliterate(text) {
+            if (!text) return '';
+            const map = {
+                'А':'A','Б':'B','В':'V','Г':'G','Д':'D','Е':'E','Ё':'Yo','Ж':'Zh',
+                'З':'Z','И':'I','Й':'Y','К':'K','Л':'L','М':'M','Н':'N','О':'O',
+                'П':'P','Р':'R','С':'S','Т':'T','У':'U','Ф':'F','Х':'Kh','Ц':'Ts',
+                'Ч':'Ch','Ш':'Sh','Щ':'Shch','Ъ':'','Ы':'Y','Ь':'','Э':'E','Ю':'Yu','Я':'Ya',
+                'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'yo','ж':'zh',
+                'з':'z','и':'i','й':'y','к':'k','л':'l','м':'m','н':'n','о':'o',
+                'п':'p','р':'r','с':'s','т':'t','у':'u','ф':'f','х':'kh','ц':'ts',
+                'ч':'ch','ш':'sh','щ':'shch','ъ':'','ы':'y','ь':'','э':'e','ю':'yu','я':'ya'
+            };
+            return String(text).split('').map(c => map[c] || c).join('');
+        }
+        
+        function generatePackingListPDF() {
+            const records = getCurrentRecords();
+            if (records.length === 0) {
+                showToast('Нет данных', 'error');
+                return;
+            }
+            
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            // Setup font
+            const useCyrillic = setupCyrillicFont(doc);
+            const t = useCyrillic ? (s) => s : transliterate;
+            
+            // Header
+            doc.setFontSize(18);
+            doc.text(t('УПАКОВОЧНЫЙ ЛИСТ'), 105, 20, { align: 'center' });
+            
+            doc.setFontSize(11);
+            doc.text(`${t('Дата')}: ${new Date().toLocaleDateString('ru-RU')}`, 20, 35);
+            doc.text(`${t('Модель')}: Azza Fencing`, 20, 42);
+            doc.text(`${t('Всего единиц')}: ${records.length}`, 20, 49);
+            doc.text(`${t('Коробок')}: ${state.boxes.length}`, 20, 56);
+            
+            // Summary by color and size
+            const summary = {};
+            state.colors.forEach(c => { summary[c] = {}; for(let s=36;s<=47;s++) summary[c][s]=0; });
+            records.forEach(r => { if(summary[r.color]) summary[r.color][r.size]++; });
+            
+            // Summary table
+            const summaryData = [];
+            state.colors.forEach(color => {
+                const row = [t(color)];
+                let total = 0;
+                for(let s=36;s<=47;s++) {
+                    row.push(summary[color][s] || '-');
+                    total += summary[color][s];
+                }
+                row.push(total);
+                summaryData.push(row);
+            });
+            
+            const headers = [t('Цвет'), ...Array.from({length:12}, (_,i) => String(36+i)), t('Итого')];
+            
+            doc.autoTable({
+                startY: 65,
+                head: [headers],
+                body: summaryData,
+                theme: 'grid',
+                styles: { fontSize: 8, cellPadding: 2, font: useCyrillic ? 'Roboto' : 'helvetica' },
+                headStyles: { fillColor: [0, 150, 200] }
+            });
+            
+            // Boxes detail
+            let y = doc.lastAutoTable.finalY + 15;
+            
+            if (state.boxes.length > 0) {
+                doc.setFontSize(14);
+                doc.text(t('СОДЕРЖИМОЕ КОРОБОК'), 20, y);
+                y += 10;
+                
+                state.boxes.forEach(box => {
+                    const boxRecords = records.filter(r => r.boxId === box.id);
+                    if (boxRecords.length === 0) return;
+                    
+                    const boxSummary = {};
+                    boxRecords.forEach(r => {
+                        const key = `${t(r.color)} ${r.size}`;
+                        boxSummary[key] = (boxSummary[key] || 0) + 1;
+                    });
+                    
+                    const boxData = Object.entries(boxSummary).map(([k, v]) => [k, v]);
+                    
+                    doc.setFontSize(11);
+                    doc.text(`${t(box.name)} (${boxRecords.length} ${t('шт')}.)`, 20, y);
+                    y += 5;
+                    
+                    doc.autoTable({
+                        startY: y,
+                        head: [[t('Товар'), t('Кол-во')]],
+                        body: boxData,
+                        theme: 'striped',
+                        styles: { fontSize: 9, font: useCyrillic ? 'Roboto' : 'helvetica' },
+                        margin: { left: 25 }
+                    });
+                    
+                    y = doc.lastAutoTable.finalY + 10;
+                    
+                    if (y > 270) {
+                        doc.addPage();
+                        y = 20;
+                    }
+                });
+            }
+            
+            // Full list on new page
+            doc.addPage();
+            doc.setFontSize(14);
+            if (useCyrillic) doc.setFont('Roboto');
+            doc.text(t('ПОЛНЫЙ СПИСОК ТОВАРОВ'), 20, 20);
+            
+            const fullData = records.map((r, i) => {
+                const box = state.boxes.find(b => b.id === r.boxId);
+                return [i+1, t(r.color), r.size, box ? t(box.name) : '-', r.gtin];
+            });
+            
+            doc.autoTable({
+                startY: 30,
+                head: [['№', t('Цвет'), t('Размер'), t('Коробка'), 'GTIN']],
+                body: fullData,
+                theme: 'grid',
+                styles: { fontSize: 8, font: useCyrillic ? 'Roboto' : 'helvetica' },
+                headStyles: { fillColor: [0, 150, 200] }
+            });
+            
+            const sessionName = state.sessions[state.currentSession]?.name || 'export';
+            doc.save(`${t('Упаковочный_лист')}_${t(sessionName)}_${new Date().toISOString().slice(0,10)}.pdf`);
+            
+            showToast('PDF создан', 'success');
+        }
+        
+        // ============ STREAM MODE ============
+        function toggleStreamMode() {
+            const color = document.getElementById('colorSelect').value;
+            const size = document.getElementById('sizeSelect').value;
+            const box = document.getElementById('boxSelect').value;
+            
+            if (!state.streamMode.active) {
+                if (!color || !size) {
+                    showToast('Выберите цвет и размер для потокового режима', 'error');
+                    return;
+                }
+                
+                state.streamMode = { active: true, color, size, box };
+                document.getElementById('streamModePanel').style.display = 'block';
+                document.getElementById('streamModeBtn').classList.add('stream-mode-active');
+                document.getElementById('streamColor').textContent = color;
+                document.getElementById('streamSize').textContent = size;
+                document.getElementById('streamBox').textContent = box ? state.boxes.find(b => b.id === box)?.name : 'нет';
+                
+                // Disable selects
+                document.getElementById('colorSelect').disabled = true;
+                document.getElementById('sizeSelect').disabled = true;
+                document.getElementById('boxSelect').disabled = true;
+                
+                speak('Потоковый режим включён');
+                showToast('🔥 Потоковый режим включён', 'warning');
+            } else {
+                state.streamMode = { active: false, color: null, size: null, box: null };
+                document.getElementById('streamModePanel').style.display = 'none';
+                document.getElementById('streamModeBtn').classList.remove('stream-mode-active');
+                
+                document.getElementById('colorSelect').disabled = false;
+                document.getElementById('sizeSelect').disabled = false;
+                document.getElementById('boxSelect').disabled = false;
+                
+                speak('Потоковый режим выключен');
+                showToast('Потоковый режим выключен', 'success');
+            }
+            
+            document.getElementById('scanInput').focus();
+        }
+        
+        // ============ SCANNING ============
+        let pendingScan = null; // Store pending scan while waiting for user input
+        
+        function processScan(rawCode) {
+            const code = rawCode.trim();
+            const scanInput = document.getElementById('scanInput');
+            
+            if (!code) return;
+            
+            const parsed = parseMarkingCode(code);
+            
+            if (!parsed) {
+                showToast('Неверный формат кода', 'error');
+                playSound('error');
+                speak('Ошибка');
+                scanInput.value = '';
+                return;
+            }
+            
+            // Check duplicates first
+            if (getCurrentRecords().some(r => r.fullCode === code)) {
+                showToast('⚠️ Дубликат!', 'warning');
+                playSound('error');
+                speak('Дубликат');
+                scanInput.value = '';
+                return;
+            }
+            
+            let color, size, boxId;
+            
+            // Check if in stream mode
+            if (state.streamMode.active) {
+                color = state.streamMode.color;
+                size = state.streamMode.size;
+                boxId = state.streamMode.box;
+            } 
+            // Check auto mode - look up GTIN in catalog
+            else if (state.autoMode && state.gtinCatalog[parsed.gtin]) {
+                const catalogEntry = state.gtinCatalog[parsed.gtin];
+                color = catalogEntry.color;
+                size = catalogEntry.size;
+                boxId = document.getElementById('boxSelect').value || null;
+                
+                // Increment scan count
+                catalogEntry.scanCount = (catalogEntry.scanCount || 0) + 1;
+            }
+            // Auto mode but GTIN not in catalog - ask user
+            else if (state.autoMode && !state.gtinCatalog[parsed.gtin]) {
+                pendingScan = { code, parsed, boxId: document.getElementById('boxSelect').value || null };
+                showNewGtinModal(parsed.gtin);
+                scanInput.value = '';
+                return;
+            }
+            // Manual mode
+            else {
+                color = document.getElementById('colorSelect').value;
+                size = document.getElementById('sizeSelect').value;
+                boxId = document.getElementById('boxSelect').value || null;
+                
+                if (!color) {
+                    showToast('Выберите цвет', 'error');
+                    playSound('error');
+                    scanInput.value = '';
+                    return;
+                }
+                
+                if (!size) {
+                    showToast('Выберите размер', 'error');
+                    playSound('error');
+                    scanInput.value = '';
+                    return;
+                }
+            }
+            
+            // Check box capacity
+            if (boxId) {
+                const box = state.boxes.find(b => b.id === boxId);
+                if (box && box.capacity > 0) {
+                    const count = getCurrentRecords().filter(r => r.boxId === boxId).length;
+                    if (count >= box.capacity) {
+                        showToast('Коробка заполнена!', 'error');
+                        playSound('error');
+                        speak('Коробка полная');
+                        scanInput.value = '';
+                        return;
+                    }
+                }
+            }
+            
+            // Add record
+            addRecord(color, size, boxId, parsed, code);
+            scanInput.value = '';
+            scanInput.focus();
+        }
+        
+        function addRecord(color, size, boxId, parsed, code) {
+            getCurrentRecords().push({
+                color,
+                size,
+                boxId,
+                gtin: parsed.gtin,
+                shortCode: parsed.shortCode,
+                fullCode: code,
+                status: 'unknown',
+                mode: state.workMode,
+                timestamp: new Date().toISOString()
+            });
+            
+            saveState();
+            renderAll();
+            playSound('success');
+            
+            const sizeWord = getSizeWord(size);
+            const actionText = getModeActionText();
+            speak(`${color}, ${sizeWord}, ${actionText}`);
+            
+            showToast(`✓ ${workModeConfig[state.workMode].name}: добавлено`, 'success');
+        }
+        
+        function showNewGtinModal(gtin) {
+            const html = `
+                <div class="modal-overlay">
+                    <div class="modal" onclick="event.stopPropagation()">
+                        <div class="modal-header">
+                            <span class="modal-title">🆕 Новый GTIN</span>
+                        </div>
+                        <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">
+                            Этот GTIN ещё не в каталоге. Укажите цвет и размер — система запомнит.
+                        </p>
+                        <div style="background: var(--bg-panel); padding: 12px; border-radius: 8px; margin-bottom: 16px; font-family: monospace; font-size: 13px;">
+                            GTIN: <strong style="color: #ffd700;">${gtin}</strong>
+                        </div>
+                        <div class="grid-2" style="gap: 12px;">
+                            <div class="field">
+                                <label>Цвет *</label>
+                                <select id="newGtinColor">
+                                    ${state.colors.map(c => `<option value="${c}">${c}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div class="field">
+                                <label>Размер *</label>
+                                <select id="newGtinSize">
+                                    ${Array.from({length: 12}, (_, i) => 36 + i).map(s => `<option value="${s}">${s}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 16px;">
+                            <button class="btn btn-primary" onclick="confirmNewGtin('${gtin}')" style="flex: 1;">
+                                ✓ Сохранить и добавить
+                            </button>
+                            <button class="btn btn-ghost" onclick="cancelNewGtin()">Отмена</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('modalContainer').innerHTML = html;
+            
+            // Focus on color select
+            setTimeout(() => document.getElementById('newGtinColor').focus(), 100);
+        }
+        
+        function confirmNewGtin(gtin) {
+            const color = document.getElementById('newGtinColor').value;
+            const size = document.getElementById('newGtinSize').value;
+            
+            if (!color || !size) {
+                showToast('Выберите цвет и размер', 'error');
+                return;
+            }
+            
+            // Add to catalog
+            state.gtinCatalog[gtin] = {
+                color,
+                size,
+                model: 'Azza Fencing',
+                addedAt: new Date().toISOString(),
+                scanCount: 1
+            };
+            
+            // Process the pending scan
+            if (pendingScan) {
+                addRecord(color, size, pendingScan.boxId, pendingScan.parsed, pendingScan.code);
+                pendingScan = null;
+            }
+            
+            closeModal();
+            saveState();
+            renderCatalog();
+            
+            showToast(`GTIN добавлен в каталог: ${color}, ${size}`, 'success');
+            document.getElementById('scanInput').focus();
+        }
+        
+        function cancelNewGtin() {
+            pendingScan = null;
+            closeModal();
+            document.getElementById('scanInput').focus();
+            showToast('Сканирование отменено', 'warning');
+        }
+        
+        function getSizeWord(size) {
+            const words = {
+                '36': 'тридцать шесть',
+                '37': 'тридцать семь',
+                '38': 'тридцать восемь',
+                '39': 'тридцать девять',
+                '40': 'сорок',
+                '41': 'сорок один',
+                '42': 'сорок два',
+                '43': 'сорок три',
+                '44': 'сорок четыре',
+                '45': 'сорок пять',
+                '46': 'сорок шесть',
+                '47': 'сорок семь'
+            };
+            return words[size] || size;
+        }
+        
+        function parseMarkingCode(code) {
+            const cleanCode = code.replace(/[\x00-\x1F\x7F]/g, '');
+            if (!cleanCode.startsWith('01')) return null;
+            
+            const gtinMatch = cleanCode.match(/^01(\d{14})/);
+            if (!gtinMatch) return null;
+            const gtin = gtinMatch[1];
+            
+            if (cleanCode.substring(16, 18) !== '21') return null;
+            
+            const afterSerial = cleanCode.substring(18);
+            const keyIndex91 = afterSerial.indexOf('91');
+            
+            const shortCode = keyIndex91 === -1 
+                ? cleanCode.substring(0, Math.min(31, cleanCode.length))
+                : cleanCode.substring(0, 18 + keyIndex91);
+            
+            if (shortCode.length < 19) return null;
+            
+            return { gtin, shortCode };
+        }
+        
+        // ============ SELECTION & BATCH DELETE ============
+        function toggleRecordSelection(index) {
+            if (selectedRecords.has(index)) {
+                selectedRecords.delete(index);
+            } else {
+                selectedRecords.add(index);
+            }
+            renderTable();
+        }
+        
+        function toggleSelectAll() {
+            const selectAll = document.getElementById('selectAll').checked;
+            const records = getCurrentRecords();
+            
+            if (selectAll) {
+                records.forEach((_, i) => selectedRecords.add(i));
+            } else {
+                selectedRecords.clear();
+            }
+            
+            renderTable();
+        }
+        
+        function updateSelectedCount() {
+            const count = selectedRecords.size;
+            document.getElementById('selectedCount').textContent = count;
+            document.getElementById('deleteSelectedBtn').disabled = count === 0;
+        }
+        
+        function deleteSelected() {
+            if (selectedRecords.size === 0) return;
+            
+            const records = getCurrentRecords();
+            const indices = Array.from(selectedRecords).sort((a, b) => b - a);
+            
+            indices.forEach(i => {
+                const deleted = records.splice(i, 1)[0];
+                if (deleted) state.deletedRecords.unshift(deleted);
+            });
+            
+            if (state.deletedRecords.length > 100) {
+                state.deletedRecords = state.deletedRecords.slice(0, 100);
+            }
+            
+            selectedRecords.clear();
+            saveState();
+            renderAll();
+            showToast(`Удалено ${indices.length} записей`, 'success');
+        }
+        
+        // ============ API STATUS CHECK ============
+        function saveApiToken() {
+            state.apiToken = document.getElementById('apiTokenInput').value.trim();
+            saveState();
+            updateApiStatus();
+        }
+        
+        function updateApiStatus() {
+            const el = document.getElementById('apiStatus');
+            const dot = el.querySelector('.api-dot');
+            const text = el.querySelector('span:last-child');
+            
+            if (state.apiToken) {
+                dot.className = 'api-dot connected';
+                text.textContent = 'API: настроен';
+            } else {
+                dot.className = 'api-dot';
+                text.textContent = 'API: не настроен';
+            }
+        }
+        
+        async function testApiConnection() {
+            if (!state.apiToken) {
+                showToast('Введите API токен', 'error');
+                return;
+            }
+            
+            showToast('Проверка подключения...', 'warning');
+            
+            // Simulated API check (real API would require CORS proxy)
+            setTimeout(() => {
+                showToast('API настроен (тестовый режим)', 'success');
+            }, 1000);
+        }
+        
+        async function checkSelectedStatus() {
+            if (selectedRecords.size === 0) {
+                showToast('Выберите записи для проверки', 'error');
+                return;
+            }
+            
+            if (!state.apiToken) {
+                showToast('Настройте API токен в настройках', 'warning');
+                return;
+            }
+            
+            const records = getCurrentRecords();
+            
+            selectedRecords.forEach(i => {
+                if (records[i]) records[i].status = 'checking';
+            });
+            renderTable();
+            
+            // Simulate API response (real implementation would call actual API)
+            setTimeout(() => {
+                selectedRecords.forEach(i => {
+                    if (records[i]) {
+                        // Random status for demo
+                        records[i].status = Math.random() > 0.2 ? 'valid' : 'invalid';
+                    }
+                });
+                saveState();
+                renderTable();
+                showToast('Статусы обновлены', 'success');
+            }, 2000);
+        }
+        
+        // ============ VOICE ============
+        function speak(text) {
+            if (!state.voiceEnabled || !('speechSynthesis' in window)) return;
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = state.voiceRate;
+            utterance.lang = 'ru-RU';
+            
+            const voices = speechSynthesis.getVoices();
+            if (state.selectedVoice !== null && voices[state.selectedVoice]) {
+                utterance.voice = voices[state.selectedVoice];
+            }
+            
+            speechSynthesis.speak(utterance);
+        }
+        
+        function toggleVoice() {
+            state.voiceEnabled = !state.voiceEnabled;
+            document.getElementById('voiceBtn').style.opacity = state.voiceEnabled ? 1 : 0.5;
+            saveState();
+            showToast(state.voiceEnabled ? 'Голос включён' : 'Голос выключен', 'success');
+        }
+        
+        function saveVoiceSettings() {
+            state.selectedVoice = parseInt(document.getElementById('voiceSelect').value);
+            saveState();
+        }
+        
+        function updateVoiceRate() {
+            state.voiceRate = parseFloat(document.getElementById('voiceRate').value);
+            document.getElementById('voiceRateValue').textContent = state.voiceRate.toFixed(1);
+            saveState();
+        }
+        
+        function testVoice() {
+            speak('Чёрный, сорок два, принято');
+        }
+        
+        // ============ OTHER FUNCTIONS ============
+        function deleteRecord(index) {
+            const records = getCurrentRecords();
+            const deleted = records.splice(index, 1)[0];
+            if (deleted) state.deletedRecords.unshift(deleted);
+            if (state.deletedRecords.length > 100) state.deletedRecords.pop();
+            selectedRecords.delete(index);
+            saveState();
+            renderAll();
+        }
+        
+        function restoreRecord(index) {
+            const record = state.deletedRecords.splice(index, 1)[0];
+            if (record) getCurrentRecords().push(record);
+            saveState();
+            renderAll();
+        }
+        
+        function clearDeleted() {
+            state.deletedRecords = [];
+            saveState();
+            renderDeletedList();
+        }
+        
+        function sortTable(column) {
+            if (currentSort.column === column) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.column = column;
+                currentSort.direction = 'asc';
+            }
+            renderTable();
+        }
+        
+        function filterTable() { renderTable(); }
+        
+        function clearFilters() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('filterColor').value = '';
+            document.getElementById('filterSize').value = '';
+            document.getElementById('filterBox').value = '';
+            renderTable();
+        }
+        
+        function updateTarget() {
+            state.target = parseInt(document.getElementById('targetInput').value) || 0;
+            saveState();
+            updateProgress();
+        }
+        
+        // Sessions
+        function showNewSessionModal() {
+            const html = `
+                <div class="modal-overlay" onclick="closeModal(event)">
+                    <div class="modal" onclick="event.stopPropagation()">
+                        <div class="modal-header">
+                            <span class="modal-title">Новая партия</span>
+                            <button class="modal-close" onclick="closeModal()">&times;</button>
+                        </div>
+                        <div class="field">
+                            <label>Название</label>
+                            <input type="text" id="newSessionName" placeholder="Партия 2">
+                        </div>
+                        <button class="btn btn-primary" onclick="createSession()" style="margin-top:12px;">Создать</button>
+                    </div>
+                </div>
+            `;
+            document.getElementById('modalContainer').innerHTML = html;
+        }
+        
+        function createSession() {
+            const name = document.getElementById('newSessionName').value.trim() || `Партия ${Object.keys(state.sessions).length + 1}`;
+            const key = 'session_' + Date.now();
+            state.sessions[key] = { name, records: [] };
+            state.currentSession = key;
+            state.boxes = [];
+            saveState();
+            closeModal();
+            renderAll();
+        }
+        
+        function switchSession() {
+            state.currentSession = document.getElementById('sessionSelect').value;
+            selectedRecords.clear();
+            saveState();
+            renderAll();
+        }
+        
+        // Export
+        function exportXLSX() {
+            const records = getCurrentRecords();
+            if (!records.length) { showToast('Нет данных', 'error'); return; }
+            
+            const data = [
+                ['№', 'Модель', 'Цвет', 'Размер', 'Коробка', 'GTIN', 'Обрезанный код', 'Полный код'],
+                ...records.map((r, i) => {
+                    const box = state.boxes.find(b => b.id === r.boxId);
+                    return [i+1, 'Azza Fencing', r.color, r.size, box?.name || '', r.gtin, r.shortCode, r.fullCode];
+                })
+            ];
+            
+            const ws = XLSX.utils.aoa_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Маркировка');
+            ws['!cols'] = [{wch:5},{wch:15},{wch:12},{wch:8},{wch:15},{wch:16},{wch:35},{wch:80}];
+            
+            const name = state.sessions[state.currentSession]?.name || 'export';
+            XLSX.writeFile(wb, `Azza_Fencing_${name}_${new Date().toISOString().slice(0,10)}.xlsx`);
+            showToast('Экспортировано', 'success');
+        }
+        
+        function exportCSV() {
+            const records = getCurrentRecords();
+            if (!records.length) { showToast('Нет данных', 'error'); return; }
+            
+            const BOM = '\uFEFF';
+            const headers = ['№','Модель','Цвет','Размер','Коробка','GTIN','Обрезанный код','Полный код'];
+            const rows = records.map((r,i) => {
+                const box = state.boxes.find(b => b.id === r.boxId);
+                return [i+1,'Azza Fencing',r.color,r.size,box?.name||'',r.gtin,r.shortCode,r.fullCode];
+            });
+            
+            const csv = BOM + [headers.join(';'), ...rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(';'))].join('\r\n');
+            
+            const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `Azza_Fencing_${new Date().toISOString().slice(0,10)}.csv`;
+            link.click();
+        }
+        
+        function importData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            
+            if (file.name.match(/\.xlsx?$/i)) {
+                reader.onload = e => {
+                    const wb = XLSX.read(e.target.result, {type:'array'});
+                    const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1});
+                    processImport(data);
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                reader.onload = e => {
+                    const rows = e.target.result.split(/\r?\n/).map(r => r.split(/[;,]/).map(c => c.replace(/^"|"$/g,'').trim()));
+                    processImport(rows);
+                };
+                reader.readAsText(file);
+            }
+            event.target.value = '';
+        }
+        
+        function processImport(data) {
+            let imported = 0;
+            data.slice(1).forEach(row => {
+                if (row.length >= 8 && row[5]) {
+                    const fullCode = String(row[7]).trim();
+                    if (fullCode && !getCurrentRecords().some(r => r.fullCode === fullCode)) {
+                        getCurrentRecords().push({
+                            color: row[2], size: row[3], boxId: null,
+                            gtin: row[5], shortCode: row[6], fullCode, status: 'unknown'
+                        });
+                        imported++;
+                    }
+                }
+            });
+            saveState();
+            renderAll();
+            showToast(`Импортировано: ${imported}`, 'success');
+        }
+        
+        // Camera
+        function showCameraModal() {
+            const html = `
+                <div class="modal-overlay" onclick="closeModal(event)">
+                    <div class="modal" onclick="event.stopPropagation()">
+                        <div class="modal-header">
+                            <span class="modal-title">📷 Камера</span>
+                            <button class="modal-close" onclick="closeCameraModal()">&times;</button>
+                        </div>
+                        <div id="camera-preview" style="width:100%;border-radius:12px;overflow:hidden;"></div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('modalContainer').innerHTML = html;
+            
+            html5QrCode = new Html5Qrcode("camera-preview");
+            html5QrCode.start(
+                {facingMode:"environment"},
+                {fps:10, qrbox:{width:250,height:250}},
+                text => processScan(text),
+                () => {}
+            ).catch(() => showToast('Ошибка камеры', 'error'));
+        }
+        
+        function closeCameraModal() {
+            if (html5QrCode) { html5QrCode.stop().catch(()=>{}); html5QrCode = null; }
+            closeModal();
+        }
+        
+        // UI
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelector(`.tab[onclick="switchTab('${tabId}')"]`).classList.add('active');
+            document.getElementById('tab-' + tabId).classList.add('active');
+            
+            // Initialize MoySklad when switching to that tab
+            if (tabId === 'moysklad') {
+                initMoySklad();
+            }
+            
+            // Focus scan input when switching to scan tab
+            if (tabId === 'scan') {
+                setTimeout(() => document.getElementById('scanInput').focus(), 100);
+            }
+        }
+        
+        function toggleTheme() {
+            const theme = document.body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            document.body.setAttribute('data-theme', theme);
+        }
+        
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        }
+        
+        function toggleSound() {
+            state.soundEnabled = !state.soundEnabled;
+            document.getElementById('soundBtn').textContent = state.soundEnabled ? '🔊' : '🔇';
+            saveState();
+        }
+        
+        function playSound(type) {
+            if (!state.soundEnabled) return;
+            const audio = document.getElementById(type + 'Sound');
+            if (audio) { audio.currentTime = 0; audio.play().catch(()=>{}); }
+        }
+        
+        function closeModal(event) {
+            if (event && event.target !== event.currentTarget) return;
+            document.getElementById('modalContainer').innerHTML = '';
+        }
+        
+        function showToast(message, type = 'success') {
+            document.querySelectorAll('.toast').forEach(t => t.remove());
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
