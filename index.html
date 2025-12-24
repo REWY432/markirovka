@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Сканер маркировки - Azza Fencing</title>
+    <title>Сканер маркировки PRO v2 — Azza Fencing</title>
     
     <!-- Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -516,6 +516,58 @@
             }
         }
         
+        /* Reconciliation status */
+        .rec-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .rec-status.done {
+            background: rgba(0, 200, 83, 0.2);
+            color: var(--success);
+        }
+        
+        .rec-status.partial {
+            background: rgba(0, 217, 255, 0.2);
+            color: var(--accent);
+        }
+        
+        .rec-status.missing {
+            background: rgba(255, 71, 87, 0.2);
+            color: var(--danger);
+        }
+        
+        .rec-status.extra {
+            background: rgba(255, 165, 2, 0.2);
+            color: var(--warning);
+        }
+        
+        .rec-indicator {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            background: linear-gradient(135deg, var(--success) 0%, #00a844 100%);
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            z-index: 100;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 4px 15px rgba(0, 200, 83, 0.3);
+        }
+        
+        .rec-indicator.active {
+            display: flex;
+        }
+        
         .toast-success { background: linear-gradient(135deg, var(--success) 0%, #00a844 100%); }
         .toast-error { background: linear-gradient(135deg, var(--danger) 0%, #c0392b 100%); }
         .toast-warning { background: linear-gradient(135deg, var(--warning) 0%, #e67e00 100%); color: #000; }
@@ -618,9 +670,14 @@
 </head>
 <body data-theme="dark">
     <div class="container">
+        <!-- Reconciliation indicator -->
+        <div class="rec-indicator" id="recIndicator">
+            📋 Сверка активна: <span id="recIndicatorText">0/0</span>
+        </div>
+        
         <!-- Header -->
         <div class="header">
-            <h1>📦 Сканер маркировки</h1>
+            <h1>📦 Сканер маркировки PRO v2</h1>
             <div class="header-controls">
                 <span class="model-badge">Azza Fencing</span>
                 <span class="model-badge" id="workModeBadge" style="background: linear-gradient(135deg, #00c853 0%, #00a844 100%);">📥 Приёмка</span>
@@ -655,6 +712,7 @@
         <!-- Tabs -->
         <div class="tabs">
             <button class="tab active" onclick="switchTab('scan')">📱 Сканирование</button>
+            <button class="tab" onclick="switchTab('reconciliation')">📋 Сверка</button>
             <button class="tab" onclick="switchTab('moysklad')">🚀 МойСклад</button>
             <button class="tab" onclick="switchTab('catalog')">📚 Каталог GTIN</button>
             <button class="tab" onclick="switchTab('boxes')">📦 Коробки</button>
@@ -758,9 +816,26 @@
                             <option value="">— Без коробки —</option>
                         </select>
                     </div>
-                    <div class="field">
-                        <label>Код маркировки <span style="color: var(--accent);">← просто сканируйте!</span></label>
-                        <input type="text" id="scanInput" class="scan-input" placeholder="Наведите сканер..." autofocus>
+                    <div class="field" style="grid-column: span 1;">
+                        <label>Код маркировки</label>
+                        <div style="display: flex; gap: 8px;">
+                            <div id="scanDisplay" style="
+                                flex: 1;
+                                background: rgba(0, 0, 0, 0.3);
+                                border: 2px solid var(--border);
+                                border-radius: 10px;
+                                padding: 12px 16px;
+                                min-height: 24px;
+                                font-family: monospace;
+                                font-size: 13px;
+                                color: var(--accent);
+                                cursor: default;
+                                transition: all 0.2s;
+                            ">
+                                ⏳ Наведите сканер...
+                            </div>
+                            <button class="btn btn-ghost" onclick="pasteFromClipboard()" title="Вставить из буфера (Ctrl+V)">📋</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -836,6 +911,121 @@
                     </table>
                     <div class="empty-state" id="emptyState">
                         <p>📦 Нет отсканированных товаров</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Reconciliation Tab -->
+        <div class="tab-content" id="tab-reconciliation">
+            <div class="panel">
+                <div class="panel-header">
+                    <h3 class="panel-title">📋 Сверка с накладной</h3>
+                    <div class="panel-actions">
+                        <button class="btn btn-ghost btn-sm" onclick="clearReconciliation()" id="clearRecBtn" style="display:none;">✕ Очистить сверку</button>
+                    </div>
+                </div>
+                
+                <!-- No reconciliation loaded -->
+                <div id="recEmpty">
+                    <div style="text-align: center; padding: 40px 20px;">
+                        <div style="font-size: 48px; margin-bottom: 16px;">📄</div>
+                        <h3 style="margin: 0 0 8px 0; color: var(--text-primary);">Загрузите накладную</h3>
+                        <p style="color: var(--text-secondary); margin-bottom: 20px;">Excel или CSV файл от поставщика</p>
+                        <input type="file" id="recFileInput" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleReconciliationFile(event)">
+                        <button class="btn btn-primary" onclick="document.getElementById('recFileInput').click()">
+                            📂 Выбрать файл
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Column mapping -->
+                <div id="recMapping" style="display: none;">
+                    <div style="background: rgba(0, 217, 255, 0.1); padding: 16px; border-radius: 10px; margin-bottom: 16px;">
+                        <p style="margin: 0 0 8px 0; font-weight: 600;">📊 Укажите соответствие столбцов:</p>
+                        <p style="margin: 0; font-size: 12px; color: var(--text-secondary);">
+                            Выберите какой столбец содержит цвет, размер и количество
+                        </p>
+                    </div>
+                    
+                    <div style="overflow-x: auto; margin-bottom: 16px;">
+                        <table class="data-table" id="recPreviewTable">
+                            <thead id="recPreviewHead"></thead>
+                            <tbody id="recPreviewBody"></tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="grid-4" style="margin-bottom: 16px;" id="recMappingSelects"></div>
+                    
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-primary" onclick="applyReconciliationMapping()">✓ Применить</button>
+                        <button class="btn btn-ghost" onclick="cancelReconciliationMapping()">Отмена</button>
+                    </div>
+                </div>
+                
+                <!-- Active reconciliation -->
+                <div id="recActive" style="display: none;">
+                    <!-- Summary bar -->
+                    <div style="background: linear-gradient(135deg, rgba(0, 217, 255, 0.1) 0%, rgba(102, 126, 234, 0.1) 100%); border-radius: 12px; padding: 20px; margin-bottom: 16px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+                            <div>
+                                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">НАКЛАДНАЯ</div>
+                                <div style="font-size: 16px; font-weight: 600;" id="recFileName">—</div>
+                            </div>
+                            <div class="stats-grid" style="display: flex; gap: 16px; margin: 0;">
+                                <div style="text-align: center;">
+                                    <div style="font-size: 24px; font-weight: 700; color: var(--text-muted);" id="recExpected">0</div>
+                                    <div style="font-size: 10px; color: var(--text-muted);">Ожидается</div>
+                                </div>
+                                <div style="text-align: center;">
+                                    <div style="font-size: 24px; font-weight: 700; color: var(--success);" id="recReceived">0</div>
+                                    <div style="font-size: 10px; color: var(--text-muted);">Принято</div>
+                                </div>
+                                <div style="text-align: center;">
+                                    <div style="font-size: 24px; font-weight: 700; color: var(--danger);" id="recMissing">0</div>
+                                    <div style="font-size: 10px; color: var(--text-muted);">Не хватает</div>
+                                </div>
+                                <div style="text-align: center;">
+                                    <div style="font-size: 24px; font-weight: 700; color: var(--warning);" id="recExtra">0</div>
+                                    <div style="font-size: 10px; color: var(--text-muted);">Лишние</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Progress bar -->
+                        <div style="margin-top: 16px;">
+                            <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+                                <span>Прогресс сверки</span>
+                                <span id="recProgressText">0%</span>
+                            </div>
+                            <div style="height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
+                                <div id="recProgressBar" style="height: 100%; background: linear-gradient(90deg, var(--success), #00a844); width: 0%; transition: width 0.3s;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Items list -->
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Статус</th>
+                                    <th>Цвет</th>
+                                    <th>Размер</th>
+                                    <th>Ожидается</th>
+                                    <th>Принято</th>
+                                    <th>Разница</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recItemsBody"></tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Actions -->
+                    <div style="display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap;">
+                        <button class="btn btn-primary" onclick="switchTab('scan')">📱 Перейти к сканированию</button>
+                        <button class="btn btn-success" onclick="generateReconciliationReport()">📄 Отчёт о расхождениях</button>
+                        <button class="btn btn-ghost" onclick="document.getElementById('recFileInput').click()">📂 Другая накладная</button>
                     </div>
                 </div>
             </div>
@@ -1182,6 +1372,15 @@
             }
         };
         
+        // Reconciliation state (not persisted)
+        let reconciliation = {
+            active: false,
+            fileName: '',
+            items: [], // {color, size, expected, received}
+            rawData: [],
+            mapping: { color: null, size: null, qty: null, gtin: null }
+        };
+        
         let currentSort = { column: null, direction: 'asc' };
         let selectedRecords = new Set();
         let html5QrCode = null;
@@ -1246,21 +1445,12 @@
         }
         
         function setupEventListeners() {
-            const scanInput = document.getElementById('scanInput');
-            scanInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') processScan(scanInput.value);
-            });
-            
             document.addEventListener('keydown', handleHotkeys);
         }
         
         function handleHotkeys(e) {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') {
-                if (e.target.id === 'scanInput' && e.key >= '0' && e.key <= '9' && !e.ctrlKey) {
-                    e.preventDefault();
-                    const sizes = { '1': 36, '2': 37, '3': 38, '4': 39, '5': 40, '6': 41, '7': 42, '8': 43, '9': 44, '0': 45 };
-                    if (sizes[e.key]) document.getElementById('sizeSelect').value = sizes[e.key];
-                }
+            // Игнорируем если в input/select/textarea
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
                 return;
             }
             
@@ -1285,6 +1475,7 @@
             updateProgress();
             updateAutoModeUI();
             updateWorkModeUI();
+            if (reconciliation.active) updateReconciliationUI();
             document.getElementById('targetInput').value = state.target || '';
         }
         
@@ -1503,6 +1694,390 @@
         function hexToRgb(hex) {
             const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
             return result ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)] : [0, 150, 200];
+        }
+        
+        // ============ RECONCILIATION ============
+        function handleReconciliationFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            reconciliation.fileName = file.name;
+            
+            const reader = new FileReader();
+            
+            if (file.name.match(/\.xlsx?$/i)) {
+                reader.onload = (e) => {
+                    try {
+                        const wb = XLSX.read(e.target.result, { type: 'array' });
+                        const ws = wb.Sheets[wb.SheetNames[0]];
+                        reconciliation.rawData = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                        showReconciliationMapping();
+                    } catch (err) {
+                        showToast('Ошибка чтения файла', 'error');
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                reader.onload = (e) => {
+                    try {
+                        const text = e.target.result;
+                        const rows = text.split(/\r?\n/).map(row => {
+                            // Try to detect delimiter
+                            if (row.includes(';')) return row.split(';');
+                            if (row.includes('\t')) return row.split('\t');
+                            return row.split(',');
+                        });
+                        reconciliation.rawData = rows.filter(r => r.some(cell => cell.trim()));
+                        showReconciliationMapping();
+                    } catch (err) {
+                        showToast('Ошибка чтения файла', 'error');
+                    }
+                };
+                reader.readAsText(file);
+            }
+            
+            event.target.value = '';
+        }
+        
+        function showReconciliationMapping() {
+            const data = reconciliation.rawData;
+            if (!data || data.length < 2) {
+                showToast('Файл пуст или содержит мало данных', 'error');
+                return;
+            }
+            
+            document.getElementById('recEmpty').style.display = 'none';
+            document.getElementById('recActive').style.display = 'none';
+            document.getElementById('recMapping').style.display = 'block';
+            document.getElementById('clearRecBtn').style.display = 'none';
+            
+            // Get headers (first row)
+            const headers = data[0].map((h, i) => h || `Столбец ${i + 1}`);
+            const previewRows = data.slice(1, 6); // First 5 data rows
+            
+            // Build preview table
+            let headHtml = '<tr><th>#</th>';
+            headers.forEach((h, i) => {
+                headHtml += `<th style="min-width: 100px;">${escapeHtml(String(h))}</th>`;
+            });
+            headHtml += '</tr>';
+            document.getElementById('recPreviewHead').innerHTML = headHtml;
+            
+            let bodyHtml = '';
+            previewRows.forEach((row, rowIdx) => {
+                bodyHtml += `<tr><td>${rowIdx + 1}</td>`;
+                headers.forEach((_, colIdx) => {
+                    const val = row[colIdx] !== undefined ? row[colIdx] : '';
+                    bodyHtml += `<td>${escapeHtml(String(val))}</td>`;
+                });
+                bodyHtml += '</tr>';
+            });
+            document.getElementById('recPreviewBody').innerHTML = bodyHtml;
+            
+            // Build mapping selects
+            const fields = [
+                { key: 'color', label: 'Цвет', required: true },
+                { key: 'size', label: 'Размер', required: true },
+                { key: 'qty', label: 'Количество', required: true },
+                { key: 'gtin', label: 'GTIN (опционально)', required: false }
+            ];
+            
+            let selectsHtml = '';
+            fields.forEach(field => {
+                selectsHtml += `
+                    <div class="field">
+                        <label>${field.label} ${field.required ? '*' : ''}</label>
+                        <select id="recMap_${field.key}">
+                            <option value="">— Не выбрано —</option>
+                            ${headers.map((h, i) => `<option value="${i}">${escapeHtml(String(h))}</option>`).join('')}
+                        </select>
+                    </div>
+                `;
+            });
+            document.getElementById('recMappingSelects').innerHTML = selectsHtml;
+            
+            // Try to auto-detect columns
+            autoDetectColumns(headers);
+        }
+        
+        function autoDetectColumns(headers) {
+            const lowerHeaders = headers.map(h => String(h).toLowerCase());
+            
+            // Color detection
+            const colorPatterns = ['цвет', 'color', 'цв.', 'цв'];
+            const colorIdx = lowerHeaders.findIndex(h => colorPatterns.some(p => h.includes(p)));
+            if (colorIdx !== -1) document.getElementById('recMap_color').value = colorIdx;
+            
+            // Size detection
+            const sizePatterns = ['размер', 'size', 'разм', 'разм.', 'р.', 'р-р'];
+            const sizeIdx = lowerHeaders.findIndex(h => sizePatterns.some(p => h.includes(p)));
+            if (sizeIdx !== -1) document.getElementById('recMap_size').value = sizeIdx;
+            
+            // Quantity detection
+            const qtyPatterns = ['кол', 'количество', 'qty', 'шт', 'count', 'кол-во'];
+            const qtyIdx = lowerHeaders.findIndex(h => qtyPatterns.some(p => h.includes(p)));
+            if (qtyIdx !== -1) document.getElementById('recMap_qty').value = qtyIdx;
+            
+            // GTIN detection
+            const gtinPatterns = ['gtin', 'штрихкод', 'ean', 'barcode', 'штрих'];
+            const gtinIdx = lowerHeaders.findIndex(h => gtinPatterns.some(p => h.includes(p)));
+            if (gtinIdx !== -1) document.getElementById('recMap_gtin').value = gtinIdx;
+        }
+        
+        function applyReconciliationMapping() {
+            const colorCol = document.getElementById('recMap_color').value;
+            const sizeCol = document.getElementById('recMap_size').value;
+            const qtyCol = document.getElementById('recMap_qty').value;
+            const gtinCol = document.getElementById('recMap_gtin').value;
+            
+            if (colorCol === '' || sizeCol === '' || qtyCol === '') {
+                showToast('Укажите столбцы: Цвет, Размер, Количество', 'error');
+                return;
+            }
+            
+            reconciliation.mapping = {
+                color: parseInt(colorCol),
+                size: parseInt(sizeCol),
+                qty: parseInt(qtyCol),
+                gtin: gtinCol !== '' ? parseInt(gtinCol) : null
+            };
+            
+            // Parse data into items
+            const data = reconciliation.rawData.slice(1); // Skip header
+            reconciliation.items = [];
+            
+            const grouped = {};
+            
+            data.forEach(row => {
+                const color = String(row[reconciliation.mapping.color] || '').trim();
+                const size = String(row[reconciliation.mapping.size] || '').trim();
+                const qty = parseInt(row[reconciliation.mapping.qty]) || 0;
+                
+                if (!color || !size || qty <= 0) return;
+                
+                const key = `${color}|${size}`;
+                if (!grouped[key]) {
+                    grouped[key] = { color, size, expected: 0, received: 0 };
+                }
+                grouped[key].expected += qty;
+                
+                // Add color to state if not exists
+                if (!state.colors.includes(color)) {
+                    state.colors.push(color);
+                    saveState();
+                }
+            });
+            
+            reconciliation.items = Object.values(grouped);
+            reconciliation.active = true;
+            
+            // Show active reconciliation
+            document.getElementById('recMapping').style.display = 'none';
+            document.getElementById('recActive').style.display = 'block';
+            document.getElementById('clearRecBtn').style.display = 'inline-flex';
+            
+            updateReconciliationUI();
+            renderColors();
+            renderColorSelect();
+            
+            showToast(`Загружено ${reconciliation.items.length} позиций`, 'success');
+        }
+        
+        function cancelReconciliationMapping() {
+            document.getElementById('recMapping').style.display = 'none';
+            document.getElementById('recEmpty').style.display = 'block';
+            reconciliation.rawData = [];
+        }
+        
+        function updateReconciliationUI() {
+            if (!reconciliation.active) {
+                document.getElementById('recIndicator').classList.remove('active');
+                return;
+            }
+            
+            // Update received counts from current records
+            const records = getCurrentRecords();
+            reconciliation.items.forEach(item => {
+                item.received = records.filter(r => 
+                    r.color === item.color && String(r.size) === String(item.size)
+                ).length;
+            });
+            
+            // Calculate totals
+            const totalExpected = reconciliation.items.reduce((sum, i) => sum + i.expected, 0);
+            const totalReceived = reconciliation.items.reduce((sum, i) => sum + Math.min(i.received, i.expected), 0);
+            const totalMissing = reconciliation.items.reduce((sum, i) => sum + Math.max(0, i.expected - i.received), 0);
+            const totalExtra = reconciliation.items.reduce((sum, i) => sum + Math.max(0, i.received - i.expected), 0);
+            
+            // Update summary
+            document.getElementById('recFileName').textContent = reconciliation.fileName;
+            document.getElementById('recExpected').textContent = totalExpected;
+            document.getElementById('recReceived').textContent = totalReceived;
+            document.getElementById('recMissing').textContent = totalMissing;
+            document.getElementById('recExtra').textContent = totalExtra;
+            
+            // Progress
+            const progress = totalExpected > 0 ? Math.round((totalReceived / totalExpected) * 100) : 0;
+            document.getElementById('recProgressText').textContent = progress + '%';
+            document.getElementById('recProgressBar').style.width = progress + '%';
+            
+            if (totalMissing === 0 && totalExtra === 0) {
+                document.getElementById('recProgressBar').style.background = 'var(--success)';
+            } else if (totalExtra > 0) {
+                document.getElementById('recProgressBar').style.background = 'linear-gradient(90deg, var(--success), var(--warning))';
+            }
+            
+            // Update items table
+            let tableHtml = '';
+            reconciliation.items.forEach(item => {
+                const diff = item.received - item.expected;
+                let status, statusClass;
+                
+                if (diff === 0 && item.received > 0) {
+                    status = '✅ Готово';
+                    statusClass = 'done';
+                } else if (diff > 0) {
+                    status = `⚠️ +${diff} лишних`;
+                    statusClass = 'extra';
+                } else if (item.received > 0) {
+                    status = `⏳ В процессе`;
+                    statusClass = 'partial';
+                } else {
+                    status = `❌ Нет`;
+                    statusClass = 'missing';
+                }
+                
+                tableHtml += `
+                    <tr>
+                        <td><span class="rec-status ${statusClass}">${status}</span></td>
+                        <td>${escapeHtml(item.color)}</td>
+                        <td>${item.size}</td>
+                        <td>${item.expected}</td>
+                        <td>${item.received}</td>
+                        <td style="color: ${diff > 0 ? 'var(--warning)' : diff < 0 ? 'var(--danger)' : 'var(--success)'}; font-weight: 600;">
+                            ${diff > 0 ? '+' : ''}${diff}
+                        </td>
+                    </tr>
+                `;
+            });
+            document.getElementById('recItemsBody').innerHTML = tableHtml;
+            
+            // Update indicator
+            const indicator = document.getElementById('recIndicator');
+            indicator.classList.add('active');
+            document.getElementById('recIndicatorText').textContent = `${totalReceived}/${totalExpected}`;
+        }
+        
+        function clearReconciliation() {
+            if (!confirm('Очистить данные сверки?')) return;
+            
+            reconciliation = {
+                active: false,
+                fileName: '',
+                items: [],
+                rawData: [],
+                mapping: { color: null, size: null, qty: null, gtin: null }
+            };
+            
+            document.getElementById('recEmpty').style.display = 'block';
+            document.getElementById('recMapping').style.display = 'none';
+            document.getElementById('recActive').style.display = 'none';
+            document.getElementById('clearRecBtn').style.display = 'none';
+            document.getElementById('recIndicator').classList.remove('active');
+            
+            showToast('Сверка очищена', 'success');
+        }
+        
+        function checkReconciliation(color, size) {
+            if (!reconciliation.active) return { status: 'ok', message: null };
+            
+            const item = reconciliation.items.find(i => 
+                i.color === color && String(i.size) === String(size)
+            );
+            
+            if (!item) {
+                return { status: 'not_in_list', message: `⚠️ Нет в накладной: ${color} ${size}` };
+            }
+            
+            if (item.received >= item.expected) {
+                return { status: 'extra', message: `⚠️ Лишний! В накладной только ${item.expected} шт.` };
+            }
+            
+            return { status: 'ok', message: null };
+        }
+        
+        function generateReconciliationReport() {
+            if (!reconciliation.active || reconciliation.items.length === 0) {
+                showToast('Нет данных для отчёта', 'error');
+                return;
+            }
+            
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            const useCyrillic = setupCyrillicFont(doc);
+            const t = useCyrillic ? (s) => s : transliterate;
+            
+            // Header
+            doc.setFontSize(18);
+            doc.text(t('АКТ СВЕРКИ'), 105, 20, { align: 'center' });
+            
+            doc.setFontSize(11);
+            doc.text(`${t('Дата')}: ${new Date().toLocaleDateString('ru-RU')}`, 20, 35);
+            doc.text(`${t('Накладная')}: ${reconciliation.fileName}`, 20, 42);
+            
+            // Summary
+            const totalExpected = reconciliation.items.reduce((sum, i) => sum + i.expected, 0);
+            const totalReceived = reconciliation.items.reduce((sum, i) => sum + i.received, 0);
+            const totalMissing = reconciliation.items.reduce((sum, i) => sum + Math.max(0, i.expected - i.received), 0);
+            const totalExtra = reconciliation.items.reduce((sum, i) => sum + Math.max(0, i.received - i.expected), 0);
+            
+            doc.text(`${t('Ожидалось')}: ${totalExpected} ${t('шт')}.`, 20, 52);
+            doc.text(`${t('Принято')}: ${totalReceived} ${t('шт')}.`, 20, 59);
+            doc.text(`${t('Недостача')}: ${totalMissing} ${t('шт')}.`, 20, 66);
+            doc.text(`${t('Излишки')}: ${totalExtra} ${t('шт')}.`, 20, 73);
+            
+            // Discrepancies table
+            const discrepancies = reconciliation.items.filter(i => i.received !== i.expected);
+            
+            if (discrepancies.length > 0) {
+                doc.setFontSize(14);
+                doc.text(t('РАСХОЖДЕНИЯ'), 20, 88);
+                
+                const tableData = discrepancies.map(item => {
+                    const diff = item.received - item.expected;
+                    return [
+                        t(item.color),
+                        item.size,
+                        item.expected,
+                        item.received,
+                        (diff > 0 ? '+' : '') + diff
+                    ];
+                });
+                
+                doc.autoTable({
+                    startY: 93,
+                    head: [[t('Цвет'), t('Размер'), t('Ожидалось'), t('Принято'), t('Разница')]],
+                    body: tableData,
+                    theme: 'grid',
+                    styles: { fontSize: 10, font: useCyrillic ? 'Roboto' : 'helvetica' },
+                    headStyles: { fillColor: [255, 71, 87] }
+                });
+            } else {
+                doc.setFontSize(14);
+                doc.setTextColor(0, 200, 83);
+                doc.text(t('ВСЕ ПОЗИЦИИ СОВПАДАЮТ'), 105, 88, { align: 'center' });
+                doc.setTextColor(0, 0, 0);
+            }
+            
+            // Signatures
+            const y = discrepancies.length > 0 ? doc.lastAutoTable.finalY + 30 : 110;
+            doc.setFontSize(10);
+            doc.text(`${t('Сдал')}: ___________________ / ___________________`, 20, y);
+            doc.text(`${t('Принял')}: ___________________ / ___________________`, 20, y + 15);
+            
+            doc.save(`Akt_sverki_${new Date().toISOString().slice(0,10)}.pdf`);
+            showToast('Акт сверки создан', 'success');
         }
         
         function renderColors() {
@@ -2727,34 +3302,115 @@
                 showToast('Потоковый режим выключен', 'success');
             }
             
-            document.getElementById('scanInput').focus();
+            
+        }
+        
+        // ============ SCANNER INPUT BUFFER ============
+        // Глобальный перехват ввода со сканера
+        let scanBuffer = '';
+        let scanTimeout = null;
+        const SCAN_TIMEOUT_MS = 50;
+        
+        document.addEventListener('keypress', (e) => {
+            const tag = e.target.tagName;
+            
+            // Игнорируем textarea и input
+            if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
+            
+            // Игнорируем управляющие комбинации
+            if (e.ctrlKey || e.altKey || e.metaKey) return;
+            
+            // Собираем символы
+            if (e.key.length === 1) {
+                scanBuffer += e.key;
+                
+                // Показываем в дисплее
+                const display = document.getElementById('scanDisplay');
+                if (display) {
+                    display.textContent = scanBuffer.substring(0, 50) + (scanBuffer.length > 50 ? '...' : '');
+                    display.style.borderColor = 'var(--accent)';
+                    display.style.color = '#ffd700';
+                }
+                
+                if (scanTimeout) clearTimeout(scanTimeout);
+                scanTimeout = setTimeout(processScanBuffer, SCAN_TIMEOUT_MS);
+            }
+        });
+        
+        // Enter завершает сканирование
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && scanBuffer.length > 20) {
+                e.preventDefault();
+                if (scanTimeout) clearTimeout(scanTimeout);
+                processScanBuffer();
+            }
+        });
+        
+        function processScanBuffer() {
+            const code = scanBuffer.trim();
+            scanBuffer = '';
+            
+            // Сбрасываем дисплей
+            const display = document.getElementById('scanDisplay');
+            if (display) {
+                display.textContent = '⏳ Наведите сканер...';
+                display.style.borderColor = 'var(--border)';
+                display.style.color = 'var(--accent)';
+            }
+            
+            if (code.length < 30) return;
+            
+            console.log('SCAN:', code.substring(0, 40) + '...');
+            processScan(code);
         }
         
         // ============ SCANNING ============
         let pendingScan = null; // Store pending scan while waiting for user input
         
+        async function pasteFromClipboard() {
+            try {
+                const text = await navigator.clipboard.readText();
+                if (text && text.length > 20) {
+                    processScan(text);
+                } else {
+                    showToast('Буфер пуст или код слишком короткий', 'warning');
+                }
+            } catch (err) {
+                showToast('Нет доступа к буферу обмена', 'error');
+            }
+        }
+        
+        // Ctrl+V глобально
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'v') {
+                const tag = e.target.tagName;
+                if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+                    e.preventDefault();
+                    pasteFromClipboard();
+                }
+            }
+        });
+        
         function processScan(rawCode) {
             const code = rawCode.trim();
-            const scanInput = document.getElementById('scanInput');
             
             if (!code) return;
             
             const parsed = parseMarkingCode(code);
             
             if (!parsed) {
+                console.log('Parse failed for code length:', code.length, 'start:', code.substring(0, 30));
                 showToast('Неверный формат кода', 'error');
                 playSound('error');
                 speak('Ошибка');
-                scanInput.value = '';
                 return;
             }
             
-            // Check duplicates first
-            if (getCurrentRecords().some(r => r.fullCode === code)) {
+            // Check duplicates using shortCode (normalized)
+            if (getCurrentRecords().some(r => r.shortCode === parsed.shortCode)) {
                 showToast('⚠️ Дубликат!', 'warning');
                 playSound('error');
                 speak('Дубликат');
-                scanInput.value = '';
                 return;
             }
             
@@ -2780,7 +3436,6 @@
             else if (state.autoMode && !state.gtinCatalog[parsed.gtin]) {
                 pendingScan = { code, parsed, boxId: document.getElementById('boxSelect').value || null };
                 showNewGtinModal(parsed.gtin);
-                scanInput.value = '';
                 return;
             }
             // Manual mode
@@ -2792,14 +3447,12 @@
                 if (!color) {
                     showToast('Выберите цвет', 'error');
                     playSound('error');
-                    scanInput.value = '';
                     return;
                 }
                 
                 if (!size) {
                     showToast('Выберите размер', 'error');
                     playSound('error');
-                    scanInput.value = '';
                     return;
                 }
             }
@@ -2813,7 +3466,6 @@
                         showToast('Коробка заполнена!', 'error');
                         playSound('error');
                         speak('Коробка полная');
-                        scanInput.value = '';
                         return;
                     }
                 }
@@ -2821,11 +3473,12 @@
             
             // Add record
             addRecord(color, size, boxId, parsed, code);
-            scanInput.value = '';
-            scanInput.focus();
         }
         
         function addRecord(color, size, boxId, parsed, code) {
+            // Check reconciliation
+            const recCheck = checkReconciliation(color, size);
+            
             getCurrentRecords().push({
                 color,
                 size,
@@ -2840,13 +3493,29 @@
             
             saveState();
             renderAll();
-            playSound('success');
+            
+            // Update reconciliation if active
+            if (reconciliation.active) {
+                updateReconciliationUI();
+            }
             
             const sizeWord = getSizeWord(size);
             const actionText = getModeActionText();
-            speak(`${color}, ${sizeWord}, ${actionText}`);
             
-            showToast(`✓ ${workModeConfig[state.workMode].name}: добавлено`, 'success');
+            // Handle reconciliation warnings
+            if (recCheck.status === 'not_in_list') {
+                playSound('error');
+                speak(`Внимание! Нет в накладной!`);
+                showToast(recCheck.message, 'warning');
+            } else if (recCheck.status === 'extra') {
+                playSound('error');
+                speak(`Внимание! Лишний товар!`);
+                showToast(recCheck.message, 'warning');
+            } else {
+                playSound('success');
+                speak(`${color}, ${sizeWord}, ${actionText}`);
+                showToast(`✓ ${workModeConfig[state.workMode].name}: добавлено`, 'success');
+            }
         }
         
         function showNewGtinModal(gtin) {
@@ -2920,13 +3589,13 @@
             renderCatalog();
             
             showToast(`GTIN добавлен в каталог: ${color}, ${size}`, 'success');
-            document.getElementById('scanInput').focus();
+            
         }
         
         function cancelNewGtin() {
             pendingScan = null;
             closeModal();
-            document.getElementById('scanInput').focus();
+            
             showToast('Сканирование отменено', 'warning');
         }
         
@@ -2949,23 +3618,52 @@
         }
         
         function parseMarkingCode(code) {
-            const cleanCode = code.replace(/[\x00-\x1F\x7F]/g, '');
-            if (!cleanCode.startsWith('01')) return null;
+            // Structure: 01 + GTIN(14) + 21 + Serial(6-13) + GS + 91 + Key(4) + GS + 92 + Crypto(88)
+            // GS = ASCII 29 (Group Separator) - невидимый разделитель
+            // При копировании GS может исчезнуть, тогда ищем по "91"
             
-            const gtinMatch = cleanCode.match(/^01(\d{14})/);
-            if (!gtinMatch) return null;
-            const gtin = gtinMatch[1];
+            const GS = String.fromCharCode(29); // Group Separator
             
-            if (cleanCode.substring(16, 18) !== '21') return null;
+            // Keep GS for parsing, remove other control chars
+            let cleanCode = code.replace(/[\x00-\x1C\x1E-\x1F\x7F]/g, '').trim();
             
-            const afterSerial = cleanCode.substring(18);
-            const keyIndex91 = afterSerial.indexOf('91');
+            // Find 01 (GTIN application identifier)
+            const idx01 = cleanCode.indexOf('01');
+            if (idx01 === -1) return null;
             
-            const shortCode = keyIndex91 === -1 
-                ? cleanCode.substring(0, Math.min(31, cleanCode.length))
-                : cleanCode.substring(0, 18 + keyIndex91);
+            // GTIN is 14 digits after "01"
+            const gtinStart = idx01 + 2;
+            const gtinCandidate = cleanCode.substring(gtinStart, gtinStart + 14);
+            if (!/^\d{14}$/.test(gtinCandidate)) return null;
+            const gtin = gtinCandidate;
             
-            if (shortCode.length < 19) return null;
+            // Find 21 (Serial number application identifier) after GTIN
+            const afterGtin = gtinStart + 14;
+            if (cleanCode.substring(afterGtin, afterGtin + 2) !== '21') return null;
+            
+            // Serial number starts after "21"
+            const serialStart = afterGtin + 2;
+            let serial;
+            
+            // Try to find end of serial: GS, then "91", or take 13 chars
+            const gsPos = cleanCode.indexOf(GS, serialStart);
+            const idx91 = cleanCode.indexOf('91', serialStart);
+            
+            if (gsPos !== -1 && gsPos < serialStart + 20) {
+                // GS separator found
+                serial = cleanCode.substring(serialStart, gsPos);
+            } else if (idx91 !== -1 && idx91 >= serialStart + 6 && idx91 <= serialStart + 13) {
+                // "91" found at reasonable position (serial is 6-13 chars)
+                serial = cleanCode.substring(serialStart, idx91);
+            } else {
+                // Fallback: take 13 chars
+                serial = cleanCode.substring(serialStart, serialStart + 13);
+            }
+            
+            if (serial.length < 6 || serial.length > 13) return null;
+            
+            // ShortCode = 01 + GTIN + 21 + Serial
+            const shortCode = '01' + gtin + '21' + serial;
             
             return { gtin, shortCode };
         }
@@ -3339,9 +4037,9 @@
                 initMoySklad();
             }
             
-            // Focus scan input when switching to scan tab
-            if (tabId === 'scan') {
-                setTimeout(() => document.getElementById('scanInput').focus(), 100);
+            // Update reconciliation when switching to that tab
+            if (tabId === 'reconciliation' && reconciliation.active) {
+                updateReconciliationUI();
             }
         }
         
